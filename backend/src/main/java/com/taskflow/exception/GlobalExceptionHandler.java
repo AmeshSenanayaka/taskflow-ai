@@ -1,6 +1,7 @@
 package com.taskflow.exception;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.taskflow.ai.exception.AiServiceException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -35,6 +36,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setTitle("Task not found");
         return problem;
     }
+
 
     @Override
     protected ResponseEntity<Object> handleMethodArgumentNotValid(MethodArgumentNotValidException ex,
@@ -91,6 +93,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Validation failed");
         problem.setTitle("Validation error");
         problem.setProperty("errors", errors);
+        return problem;
+    }
+
+    @ExceptionHandler(AiServiceException.class)
+    public ProblemDetail handleAiService(AiServiceException ex) {
+        // The cause has already been logged by AiChatController with the conversation id.
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(ex.status(), ex.getMessage());
+        problem.setTitle("AI service error");
+        problem.setProperty("retryable", ex.retryable());
         return problem;
     }
 
