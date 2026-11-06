@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, CalendarDays, CheckCircle2, LayoutDashboard, ListTodo, Settings } from "lucide-react";
+import { CalendarClock, CalendarDays, CheckCircle2, LayoutDashboard, ListTodo, Settings, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/assistant", label: "AI Assistant", icon: Sparkles },
   { href: "/tasks", label: "All Tasks", icon: ListTodo },
   { href: "/today", label: "Today", icon: CalendarDays },
   { href: "/upcoming", label: "Upcoming", icon: CalendarClock },

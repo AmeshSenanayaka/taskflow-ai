@@ -4,7 +4,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/taskflow}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:root@123}
+    password: ${DB_PASSWORD:change_me}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -22,9 +22,46 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
 
+# LangChain4j Spring Boot starter (langchain4j-open-ai-spring-boot-starter).
+# Creates the ChatModel bean that @AiService interfaces (TaskAgent) use automatically.
+langchain4j:
+  open-ai:
+    chat-model:
+      api-key: ${OPENAI_API_KEY:test-key}
+      model-name: ${OPENAI_MODEL_NAME:gpt-4o-mini}
+      temperature: ${OPENAI_TEMPERATURE:0.2}
+      # Logs full request/response bodies (including task content). Development only.
+      log-requests: ${OPENAI_LOG_REQUESTS:false}
+      log-responses: ${OPENAI_LOG_RESPONSES:false}
+
 taskflow:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  ai:
+    # Development-only identity while the app has no authentication (see README, "Known limitations").
+    dev-user-id: ${TASKFLOW_DEV_USER_ID:local-user}
+    # Upper bound on LLM -> tool -> LLM round trips per user message.
+    max-tool-round-trips: ${AI_MAX_TOOL_ROUND_TRIPS:8}
+    azure:
+      # All three are required to enable the assistant; leave them unset to run without AI features.
+      endpoint: ${AZURE_OPENAI_ENDPOINT:https://senanayakaamesh2-0888-resource.openai.azure.com/openai/v1}
+      api-key: ${AZURE_OPENAI_API_KEY:}
+      deployment-name: ${AZURE_OPENAI_DEPLOYMENT_NAME:}
+      # Optional. Blank = latest API version supported by the Azure SDK.
+      api-version: ${AZURE_OPENAI_API_VERSION:}
+      temperature: ${AZURE_OPENAI_TEMPERATURE:0.2}
+      max-tokens: ${AZURE_OPENAI_MAX_TOKENS:1024}
+      timeout: ${AZURE_OPENAI_TIMEOUT:30s}
+      # Retries inside the Azure SDK for transient failures. Kept low to avoid retry storms.
+      max-retries: ${AZURE_OPENAI_MAX_RETRIES:1}
+      # Logs full request/response bodies (including task content). Development only.
+      log-requests: ${AZURE_OPENAI_LOG_REQUESTS:false}
+    memory:
+      max-messages: ${AI_MEMORY_MAX_MESSAGES:30}
+      retention: ${AI_MEMORY_RETENTION:2h}
+      max-conversations: ${AI_MEMORY_MAX_CONVERSATIONS:500}
+    confirmation:
+      ttl: ${AI_CONFIRMATION_TTL:5m}
 
 springdoc:
   swagger-ui:
@@ -37,3 +74,8 @@ springdoc:
 logging:
   level:
     com.taskflow: INFO
+    dev.langchain4j: INFO
+  pattern:
+    # requestId / conversationId are set in the MDC by AgentService for every AI request.
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [%t] %-40.40logger{39} %X{requestId:-}%X{conversationId:- } : %m%n"
+
