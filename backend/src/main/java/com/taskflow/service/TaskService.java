@@ -45,7 +45,7 @@ public class TaskService {
     @Transactional
     public TaskResponse create(CreateTaskRequest request) {
         TaskPriority priority = request.priority() != null ? request.priority() : TaskPriority.MEDIUM;
-        Task task = new Task(request.title().trim(), normalize(request.description()), priority, request.dueDate());
+        Task task = new Task(request.title().trim(), normalize(request.description()), priority, request.dueDate(), now());
         return taskMapper.toResponse(taskRepository.save(task));
     }
 
@@ -71,7 +71,7 @@ public class TaskService {
         task.setPriority(request.priority());
         task.setDueDate(request.dueDate());
         task.changeStatus(request.status(), now());
-        // Flush so @PreUpdate runs and the response carries the fresh updatedAt.
+        task.touch(now());
         return taskMapper.toResponse(taskRepository.saveAndFlush(task));
     }
 
@@ -79,6 +79,7 @@ public class TaskService {
     public TaskResponse updateStatus(UUID id, TaskStatus status) {
         Task task = findOrThrow(id);
         task.changeStatus(status, now());
+        task.touch(now());
         return taskMapper.toResponse(taskRepository.saveAndFlush(task));
     }
 

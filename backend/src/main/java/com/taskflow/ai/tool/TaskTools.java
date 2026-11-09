@@ -7,6 +7,7 @@ import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
 import com.taskflow.exception.TaskNotFoundException;
+import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
 import com.taskflow.specification.TaskFilter;
 import com.taskflow.specification.TaskSort;
@@ -31,6 +32,22 @@ import java.util.stream.Collectors;
 public class TaskTools {
 
     private final TaskService taskService;
+    private final PreferencesService preferencesService;
+
+    @Tool("""
+        Get today's date in the user's configured timezone, as YYYY-MM-DD, together with that timezone.
+        Call this before resolving relative words such as today, tomorrow, next Monday or this week
+        into absolute dates. Never guess the current date.
+        """)
+    public TodayResponse getToday() {
+        return guarded("getToday", () -> new TodayResponse(
+                preferencesService.today().toString(),
+                preferencesService.getZoneId().getId()));
+    }
+
+    /** Tool result for {@link #getToday()}. */
+    public record TodayResponse(String today, String timezone) {
+    }
 
     @Tool("Create a new task with a title, description, priority and due date")
     public TaskResponse createTask(
@@ -131,7 +148,7 @@ public class TaskTools {
             return LocalDate.parse(value.trim());
         } catch (DateTimeParseException ex) {
             throw new ToolExecutionException("Invalid date '" + value + "'. Dates must be absolute and in yyyy-MM-dd "
-                    + "format; resolve words like 'tomorrow' against today's date first.");
+                    + "format; call getToday and resolve words like 'tomorrow' against that date first.");
         }
     }
 

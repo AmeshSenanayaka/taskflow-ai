@@ -63,6 +63,8 @@ class TaskServiceTest {
         assertThat(saved.getPriority()).isEqualTo(TaskPriority.MEDIUM);
         assertThat(saved.getStatus()).isEqualTo(TaskStatus.TODO);
         assertThat(saved.getCompletedAt()).isNull();
+        assertThat(saved.getCreatedAt()).isEqualTo(FIXED_NOW);
+        assertThat(saved.getUpdatedAt()).isEqualTo(FIXED_NOW);
         assertThat(response.priority()).isEqualTo(TaskPriority.MEDIUM);
         assertThat(response.status()).isEqualTo(TaskStatus.TODO);
     }
@@ -78,6 +80,19 @@ class TaskServiceTest {
         assertThat(response.priority()).isEqualTo(TaskPriority.HIGH);
         assertThat(response.dueDate()).isEqualTo(due);
         assertThat(response.description()).isEqualTo("Push to prod");
+    }
+
+    @Test
+    void updatesStampUpdatedAtFromTheClockAndKeepCreatedAt() {
+        Task task = newTask();
+        Instant originallyCreated = task.getCreatedAt();
+        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        stubSaveAndFlush();
+
+        TaskResponse response = taskService.updateStatus(task.getId(), TaskStatus.IN_PROGRESS);
+
+        assertThat(response.createdAt()).isEqualTo(originallyCreated);
+        assertThat(response.updatedAt()).isEqualTo(FIXED_NOW);
     }
 
     @Test
@@ -182,6 +197,6 @@ class TaskServiceTest {
     }
 
     private static Task newTask() {
-        return new Task("Sample", null, TaskPriority.MEDIUM, null);
+        return new Task("Sample", null, TaskPriority.MEDIUM, null, Instant.parse("2026-11-01T08:00:00Z"));
     }
 }

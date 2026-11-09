@@ -7,8 +7,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -56,13 +54,25 @@ public class Task {
     @Column(name = "completed_at")
     private Instant completedAt;
 
-    public Task(String title, String description, TaskPriority priority, LocalDate dueDate) {
+    /**
+     * @param dueDate the calendar day the task is due, or null. It is a {@link LocalDate} on purpose: a deadline
+     *                belongs to a day, not an instant, so it never shifts when the user's timezone changes.
+     * @param now     the creation instant, supplied by the caller's {@link java.time.Clock} so tests are repeatable.
+     */
+    public Task(String title, String description, TaskPriority priority, LocalDate dueDate, Instant now) {
         this.id = UUID.randomUUID();
         this.title = title;
         this.description = description;
         this.priority = priority;
         this.status = TaskStatus.TODO;
         this.dueDate = dueDate;
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
+
+    /** Records that the task was modified at {@code now}. Called by the service before every save. */
+    public void touch(Instant now) {
+        this.updatedAt = now;
     }
 
     /**
@@ -82,17 +92,4 @@ public class Task {
         }
     }
 
-    @PrePersist
-    void onCreate() {
-        Instant now = Instant.now();
-        if (createdAt == null) {
-            createdAt = now;
-        }
-        updatedAt = now;
-    }
-
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = Instant.now();
-    }
 }

@@ -257,6 +257,40 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
+    void changingTheTimezoneDoesNotMoveAnExistingDueDate() throws Exception {
+        // A due date is a calendar day. Moving the user from UTC+5:30 to UTC-10 (15.5 hours apart, so any
+        // instant-based storage would shift the day) must leave the stored and returned date untouched.
+        MvcResult created = mockMvc.perform(post("/api/tasks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\": \"Submit report\", \"dueDate\": \"2026-11-15\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID id = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
+
+        try {
+            mockMvc.perform(put("/api/preferences")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"timezone\": \"Pacific/Honolulu\", \"dailyAvailableMinutes\": 480}"))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(get("/api/tasks/{id}", id))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.dueDate").value("2026-11-15"));
+
+            mockMvc.perform(get("/api/tasks").param("dueDate", "2026-11-15"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content", hasSize(1)))
+                    .andExpect(jsonPath("$.content[0].id").value(id.toString()));
+        } finally {
+            // restore the default for other tests
+            mockMvc.perform(put("/api/preferences")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"timezone\": \"Asia/Colombo\", \"dailyAvailableMinutes\": 480}"))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Test
     void preferencesRejectInvalidTimezone() throws Exception {
         mockMvc.perform(put("/api/preferences")
                         .contentType(MediaType.APPLICATION_JSON)
