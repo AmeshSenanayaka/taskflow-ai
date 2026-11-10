@@ -8,6 +8,9 @@ import com.taskflow.repository.PreferencesRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 
 @Service
@@ -16,10 +19,14 @@ public class PreferencesService {
 
     private final PreferencesRepository preferencesRepository;
     private final PreferencesMapper preferencesMapper;
+    private final Clock clock;
 
-    public PreferencesService(PreferencesRepository preferencesRepository, PreferencesMapper preferencesMapper) {
+    public PreferencesService(PreferencesRepository preferencesRepository,
+                              PreferencesMapper preferencesMapper,
+                              Clock clock) {
         this.preferencesRepository = preferencesRepository;
         this.preferencesMapper = preferencesMapper;
+        this.clock = clock;
     }
 
     public PreferencesResponse get() {
@@ -33,12 +40,24 @@ public class PreferencesService {
         return ZoneId.of(load().getTimezone());
     }
 
+    /**
+     * The user's current calendar date: the single definition of "today" shared by the dashboard,
+     * due-today/overdue queries and the AI tools, so every caller agrees on which day it is.
+     * <p>
+     * Contract: a task's {@code dueDate} is a calendar date ({@link LocalDate}), not an instant. Changing the
+     * timezone never moves a stored due date; it only changes which calendar day counts as "today", and
+     * therefore which tasks are currently overdue or due today. The server's own timezone is irrelevant.
+     */
+    public LocalDate today() {
+        return LocalDate.now(clock.withZone(getZoneId()));
+    }
+
     @Transactional
     public PreferencesResponse update(UpdatePreferencesRequest request) {
         UserPreferences preferences = load();
         preferences.setTimezone(request.timezone());
         preferences.setDailyAvailableMinutes(request.dailyAvailableMinutes());
-        // Flush so @PreUpdate runs and the response carries the fresh updatedAt.
+        preferences.setUpdatedAt(Instant.now(clock));
         return preferencesMapper.toResponse(preferencesRepository.saveAndFlush(preferences));
     }
 

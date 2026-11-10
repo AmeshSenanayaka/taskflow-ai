@@ -6,7 +6,6 @@ import com.taskflow.repository.TaskRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.time.LocalDate;
 
 @Service
@@ -15,17 +14,15 @@ public class DashboardService {
 
     private final TaskRepository taskRepository;
     private final PreferencesService preferencesService;
-    private final Clock clock;
 
-    public DashboardService(TaskRepository taskRepository, PreferencesService preferencesService, Clock clock) {
+    public DashboardService(TaskRepository taskRepository, PreferencesService preferencesService) {
         this.taskRepository = taskRepository;
         this.preferencesService = preferencesService;
-        this.clock = clock;
     }
 
     public DashboardStatsResponse getStats() {
-        // "Today" depends on the user's timezone, not on the server's.
-        LocalDate today = LocalDate.now(clock.withZone(preferencesService.getZoneId()));
+        // "Today" depends on the user's timezone, not on the server's; the definition lives in one place.
+        LocalDate today = preferencesService.today();
 
         return new DashboardStatsResponse(
                 taskRepository.count(),

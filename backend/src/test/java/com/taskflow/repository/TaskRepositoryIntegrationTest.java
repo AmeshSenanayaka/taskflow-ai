@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 11, 2);
+    private static final Instant CREATED = Instant.parse("2026-10-30T08:00:00Z");
 
     @Autowired
     private TaskRepository taskRepository;
@@ -140,11 +141,11 @@ class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
     }
 
     private static Task task(String title, String description, TaskPriority priority, LocalDate dueDate) {
-        return new Task(title, description, priority, dueDate);
+        return new Task(title, description, priority, dueDate, CREATED);
     }
 
     private static Task completed(String title, TaskPriority priority, LocalDate dueDate) {
-        Task task = new Task(title, null, priority, dueDate);
+        Task task = new Task(title, null, priority, dueDate, CREATED);
         task.changeStatus(TaskStatus.COMPLETED, Instant.parse("2026-11-01T10:00:00Z"));
         return task;
     }

@@ -3,7 +3,6 @@ package com.taskflow.entity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,8 +36,10 @@ public class UserPreferences {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @PreUpdate
-    void onUpdate() {
-        updatedAt = Instant.now();
+    public UserPreferences(String timezone, Integer dailyAvailableMinutes, Instant updatedAt) {
+        this.id = SINGLETON_ID;
+        this.timezone = timezone;
+        this.dailyAvailableMinutes = dailyAvailableMinutes;
+        this.updatedAt = updatedAt;
     }
 }
