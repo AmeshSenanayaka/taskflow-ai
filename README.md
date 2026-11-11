@@ -1,7 +1,9 @@
-# TaskFlow AI — Phase 1
+# TaskFlow AI — Phase 2
 
-A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, now with an
-**AI assistant** powered by **LangChain4j** and **OpenAI**.
+A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
+**AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1) and, new in Phase 2, a
+**multi-agent system** in which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`,
+`PlanningAgent` or `SummaryAgent`.
 
 This repository accompanies the Medium article series
 **"Building Agentic AI Applications with Java: From Spring Boot to Multi-Agent Systems Using LangChain4j"**.
@@ -9,13 +11,14 @@ This repository accompanies the Medium article series
 | Phase | Scope | Status |
 |---|---|---|
 | Phase 0 | Traditional full-stack task manager | ✅ Implemented |
-| **Phase 1** | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` (this repository state) | ✅ Implemented |
-| Phase 2 | `SupervisorAgent` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | Planned |
+| Phase 1 | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` | ✅ Implemented |
+| **Phase 2** | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` (this repository state) | ✅ Implemented |
 | Phase 3 | Cost-aware routing: Java rules vs Jev vs cheap model vs LLM supervisor, measured | Planned |
 
-> Phase 1 adds exactly one agent and keeps it deliberately small: the `TaskAgent` creates, finds and reads tasks through
-> three LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. It has no delete tool.
-> No multi-agent code yet.
+> Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
+> LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
+> specialists and a supervisor built with `langchain4j-agentic`. The Phase 1 endpoint keeps working unchanged next to
+> the new one, so both can be compared on the same data. There is still no delete tool.
 
 ---
 
@@ -25,7 +28,9 @@ TaskFlow AI lets a single user organise daily tasks, manage priorities, track de
 
 - a responsive **Next.js dashboard** (sidebar navigation, statistics cards, filterable/sortable/paginated task list, create/edit drawer, settings page),
 - a documented **REST API** (Swagger UI) backed by PostgreSQL, and
-- an **AI assistant** page where you manage tasks in plain language ("create a high-priority task for Friday").
+- an **AI assistant** page where you manage tasks in plain language ("create a high-priority task for Friday"), and
+  since Phase 2 ask for prioritisation, a plan for the day or a progress summary ("plan my day") and let the supervisor
+  pick the right agent.
 
 The application is intentionally single-user: there is no authentication, and preferences are a single record
 (see [Known limitations](#14-known-limitations)).
@@ -44,6 +49,12 @@ Phase 1 (see [`docs/phase-1/screenshots`](docs/phase-1/screenshots)):
 |---|---|
 | ![AI assistant chat](docs/phase-1/screenshots/01-assistant-chat.png) | ![AI assistant on mobile](docs/phase-1/screenshots/03-assistant-mobile.png) |
 
+Phase 2 (see [`docs/phase-2/screenshots`](docs/phase-2/screenshots)):
+
+| Supervisor: plan my day | Supervisor: execution details | Mobile |
+|---|---|---|
+| ![Supervisor planning](docs/phase-2/screenshots/01-supervisor-plan.png) | ![Agents and tools used](docs/phase-2/screenshots/02-supervisor-details.png) | ![Supervisor on mobile](docs/phase-2/screenshots/03-supervisor-mobile.png) |
+
 ### Features
 
 - Full task CRUD with status (`TODO`, `IN_PROGRESS`, `COMPLETED`) and priority (`LOW`, `MEDIUM`, `HIGH`)
@@ -57,11 +68,26 @@ Phase 1 (see [`docs/phase-1/screenshots`](docs/phase-1/screenshots)):
 **Phase 1 — AI assistant**
 
 - `TaskAgent`, a LangChain4j AI Service (`@AiService`) backed by OpenAI, with tool calling over the existing `TaskService`
-- Three tools: `createTask`, `getTaskById`, `listTasks` (filters, sorting, pagination) — the model never touches a repository
+- Tools: `createTask`, `getTaskById`, `listTasks` (filters, sorting, pagination), `updateTask`, `updateTaskStatus`,
+  `getToday` — the model never touches a repository
 - Conversation memory: a sliding window of messages per `conversationId` (in process)
 - Tool errors are translated into instructions the model can act on (invalid date, unknown task, validation failure);
   provider failures (rate limit, timeout, bad key) become clear `ProblemDetail` responses for the UI
 - Chat UI with message bubbles, loading/error states with retry, a "new conversation" action and automatic refresh of task views
+
+**Phase 2 — multi-agent system**
+
+- `TaskFlowSupervisor`: a LangChain4j supervisor agent (`langchain4j-agentic`). An LLM planner reads the agent cards
+  (name, description, arguments), calls one sub-agent at a time and stops when the request is answered
+- `PriorityAgent` ranks open tasks by urgency, priority and status with a reason per task; `PlanningAgent` builds a
+  time-boxed plan inside the user's daily available minutes; `SummaryAgent` reports progress, overdue and recent work
+- The three specialists are **read-only by construction**: they only receive `TaskQueryTools` (`findTasks`,
+  `getTaskStatistics`, `getPlanningContext`); only `TaskAgent` holds the tools that change data
+- Today's date, weekday, timezone and daily available minutes are injected into every agent's system message at call
+  time, so "tomorrow" and "overdue" are resolved correctly
+- `POST /api/ai/supervisor/chat` returns the answer plus the agents invoked, the tools called, the number of LLM calls
+  and the token usage, so routing cost is visible (the input for the Phase 3 comparison)
+- The UI has a **Supervisor / TaskAgent** switch; "Execution details" under each reply shows the route taken
 
 ---
 
@@ -109,7 +135,8 @@ Phase 1 (see [`docs/phase-1/screenshots`](docs/phase-1/screenshots)):
                                                      └───────────────┘
 ```
 
-Phase 1 adds the agent path next to the REST path. Both end in the same services:
+Phase 1 added the agent path next to the REST path; Phase 2 puts a supervisor in front of several agents. All paths
+end in the same services:
 
 ```text
 Next.js  /assistant  ──▶  POST /api/ai/chat  ──▶  AiChatController   (validates, translates provider errors)
@@ -129,6 +156,35 @@ either with a tool call or with text. A tool call runs a Java method on `TaskToo
 calls the same `TaskService` the REST API uses; the result goes back to the model, which decides again. Text ends the
 loop and becomes the reply. This is **tool calling, not MCP**: the tools live in the same JVM as the agent.
 
+Phase 2 adds a second entry point with a planner on top:
+
+```text
+Next.js  /assistant (Supervisor mode)  ──▶  POST /api/ai/supervisor/chat  ──▶  AiChatController
+                                                                                   │
+                                                                                   ▼
+                                                                             MultiAgentService   (lock per conversation, request id, error translation)
+                                                                                   │
+                                                                                   ▼
+                                        TaskFlowSupervisor  (LangChain4j supervisor: planner LLM + chat memory)
+                                                 │  "which agent next?"  ◀──────▶  OpenAI
+                                                 │
+                 ┌───────────────────────────────┼─────────────────────────────┬──────────────────────────────┐
+                 ▼                               ▼                             ▼                              ▼
+           TaskAgent                      PriorityAgent                  PlanningAgent                  SummaryAgent
+      (memory per conversation)            (read-only)                    (read-only)                    (read-only)
+           TaskTools                     TaskQueryTools                 TaskQueryTools                 TaskQueryTools
+     create/list/get/update/status    findTasks/statistics/context   findTasks/statistics/context   findTasks/statistics/context
+                 └───────────────────────────────┴─────────────────────────────┴──────────────────────────────┘
+                                                 ▼
+                                   TaskService / DashboardService / PreferencesService  ──▶  PostgreSQL
+```
+
+The supervisor's planner is itself an LLM call that only sees the agents' names, descriptions and arguments (never the
+tools). Each step it returns `{"agentName": "...", "arguments": {"request": "..."}}` or `{"agentName": "done", ...}`.
+A request like "summarise my week and plan tomorrow" therefore costs: planner → SummaryAgent (with its tool rounds) →
+planner → PlanningAgent (with its tool rounds) → planner "done". The response reports exactly that: which agents ran,
+which tools they called, how many LLM calls were made and how many tokens were used.
+
 Repository layout:
 
 ```text
@@ -138,6 +194,7 @@ taskflow-ai/
 ├── infrastructure/   docker-compose.yml for PostgreSQL
 ├── docs/phase-0/     Implementation notes for the Phase 0 article
 ├── docs/phase-1/     Implementation notes for the Phase 1 article
+├── docs/phase-2/     Implementation notes for the Phase 2 article
 └── README.md
 ```
 
@@ -155,20 +212,32 @@ mapper/         entity -> DTO mapping
 exception/      GlobalExceptionHandler (ProblemDetail), TaskNotFoundException
 validation/     @ValidTimezone
 config/         ClockConfig, CorsConfig, OpenApiConfig
-ai/             Phase 1 (everything AI lives here)
-  agent/          TaskAgent            the AI Service interface (@AiService, @SystemMessage, @MemoryId)
+ai/             everything AI lives here
+  agent/          TaskAgent            Phase 1 AI Service (@AiService) and Phase 2 sub-agent (@Agent)
+                  PriorityAgent, PlanningAgent, SummaryAgent   read-only specialists (@Agent)
+                  TaskFlowSupervisor   the supervisor interface (@Agent, @MemoryId)
+  service/        MultiAgentService    one supervisor request: lock per conversation, MDC ids, error translation
+  orchestration/  TaskFlowAgentFactory builds the agents and the supervisor with AgenticServices (plain Java)
+                  MultiAgentService    one request: lock per conversation, MDC ids, error translation
+                  AgentRunRecorder     AgentListener: agents/tools/LLM calls/tokens per request
+                  AgentContextProvider today's date, timezone, daily minutes appended to every system message
+                  TokenAccountingChatModel  counts every LLM call made by any agent
   config/         AiConfig             ChatMemoryProvider (sliding window per conversation)
-  tool/           TaskTools            the @Tool methods, delegating to TaskService
+                  MultiAgentConfig, SupervisorProperties   Phase 2 beans and taskflow.ai.supervisor.* limits
+  tool/           TaskTools            read/write @Tool methods for TaskAgent (create, list, get, update, status, date)
+                  TaskQueryTools       read-only @Tool methods for the specialists (findTasks, statistics, context)
+  dto/            SupervisorChatResponse, AgentCallInfo, ToolCallInfo, AgentDescriptor
   exception/      ToolExecutionException (messages written for the model),
                   AiServiceException     (provider failures translated for the user)
-resources/prompts/task-agent-system.txt   the TaskAgent system prompt
+resources/prompts/  task-agent-system.txt, priority-agent-system.txt, planning-agent-system.txt,
+                    summary-agent-system.txt, supervisor-context.txt
 ```
 
 Frontend layout (`frontend/`):
 
 ```text
 app/            Routes: / (dashboard), /assistant (AI chat), /tasks, /today, /upcoming, /completed, /settings
-components/     layout/, dashboard/, tasks/, assistant/ (chat, bubbles, composer, example prompts), settings/, providers/, ui/
+components/     layout/, dashboard/, tasks/, assistant/ (chat, bubbles, composer, example prompts, mode switch), settings/, providers/, ui/
 hooks/          useTasks, useDashboardStats, useTaskMutations, useTaskQueryParams, useApiQuery, useAssistant
 lib/api/        Centralised fetch client + per-resource API modules (tasks, dashboard, preferences, ai)
 lib/validations Zod schemas (task, preferences)
@@ -308,10 +377,15 @@ npm start
 | `OPENAI_MODEL_NAME` | `gpt-4o-mini` | Any OpenAI chat model that supports tool calling |
 | `OPENAI_TEMPERATURE` | `0.2` | Sampling temperature |
 | `OPENAI_LOG_REQUESTS` / `OPENAI_LOG_RESPONSES` | `false` | Log full LLM request/response bodies (development only) |
-| `AI_MEMORY_MAX_MESSAGES` | `30` | Messages kept per conversation (sliding window) |
+| `AI_MEMORY_MAX_MESSAGES` | `30` | Messages kept per conversation (sliding window), TaskAgent |
+| `AI_SUPERVISOR_MAX_AGENT_INVOCATIONS` | `5` | Phase 2: sub-agent calls allowed per message (each costs ≥ 2 LLM calls) |
+| `AI_SUPERVISOR_MAX_TOOL_ROUND_TRIPS` | `8` | Phase 2: tool calls allowed inside one sub-agent invocation |
+| `AI_SUPERVISOR_MEMORY_MAX_MESSAGES` | `20` | Phase 2: the supervisor's own planning memory per conversation |
+| `AI_SUPERVISOR_RESPONSE_STRATEGY` | `LAST` | Phase 2: `LAST` (the agents' answers verbatim, in order; one agent: its answer), `SUMMARY` (planner recap) or `SCORED` |
+| `AI_SUPERVISOR_CONTEXT_STRATEGY` | `CHAT_MEMORY` | Phase 2: how the planner remembers earlier turns (`CHAT_MEMORY`, `SUMMARIZATION`, `CHAT_MEMORY_AND_SUMMARIZATION`) |
 
-Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory.retention`, `confirmation.ttl`, the
-`azure` block) are reserved for later phases and are not read by the Phase 1 code.
+Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory.retention`,
+`memory.max-conversations`, `confirmation.ttl`) are reserved for later work and are not read by the current code.
 
 **Frontend** (copy `frontend/.env.example` to `frontend/.env.local` to override):
 
@@ -356,7 +430,9 @@ schemas, validation constraints and the documented error responses.
 | `GET` | `/api/preferences` | Read preferences | `200` |
 | `PUT` | `/api/preferences` | Update timezone and daily available minutes | `200` |
 | `GET` | `/api/ai/status` | Whether the assistant is configured (`available`, `model`) | `200` |
-| `POST` | `/api/ai/chat` | Send a message to the `TaskAgent` | `200` |
+| `POST` | `/api/ai/chat` | Send a message to the single `TaskAgent` (Phase 1) | `200` |
+| `POST` | `/api/ai/supervisor/chat` | Send a message to the `TaskFlowSupervisor`, which routes to the specialised agents (Phase 2) | `200` |
+| `GET` | `/api/ai/agents` | The agents behind the supervisor (name, description, whether they can modify tasks) | `200` |
 
 List query parameters for `GET /api/tasks`:
 
@@ -435,17 +511,59 @@ curl -s http://localhost:8080/api/ai/chat -H "Content-Type: application/json" \
   -d '{"conversationId":"conv-1","message":"Show my pending tasks."}'
 ```
 
+### Ask the supervisor (Phase 2)
+
+Same request body, different path. The supervisor decides which agents to call and reports what it did:
+
+```http
+POST /api/ai/supervisor/chat
+Content-Type: application/json
+
+{ "conversationId": "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f", "message": "Plan my day." }
+```
+
+```json
+{
+  "conversationId": "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+  "message": "Plan for Monday 2026-11-09 (480 minutes available):\n1. 09:00–10:00 Review the architecture document (HIGH, due today) …",
+  "dataChanged": false,
+  "execution": {
+    "requestId": "c0a8f1d2-…",
+    "durationMs": 6210,
+    "agents": [ { "name": "PlanningAgent", "durationMs": 4980, "success": true } ],
+    "toolCalls": [ { "name": "getPlanningContext", "durationMs": 3, "success": true },
+                   { "name": "findTasks", "durationMs": 14, "success": true } ],
+    "llmCalls": 4,
+    "tokenUsage": { "inputTokens": 5120, "outputTokens": 410, "totalTokens": 5530 }
+  }
+}
+```
+
+`dataChanged` is `true` only when a tool actually changed task data (`createTask`, `updateTask`, `updateTaskStatus`);
+the UI uses it to refresh the task views. `llmCalls` counts every model call (planner steps, agent turns, tool rounds).
+
+```bash
+curl -s http://localhost:8080/api/ai/supervisor/chat -H "Content-Type: application/json" \
+  -d '{"conversationId":"conv-1","message":"What should I focus on first?"}'
+curl -s http://localhost:8080/api/ai/agents
+```
+
 ### Supported natural-language commands
 
-| You say | The agent does |
-|---|---|
-| "Create a high-priority task to review the architecture document on Friday 14 November." | `createTask` with `priority=HIGH` and the date in `yyyy-MM-dd` |
-| "Show me all my pending high-priority tasks." | `listTasks(statuses=[TODO, IN_PROGRESS], priority=HIGH)` and lists real results only |
-| "Search for tasks about the article." | `listTasks(search=article)` |
-| "What is the priority of the sprint planning task?" | `listTasks(search=…)` then `getTaskById` |
+| You say | Who answers (Supervisor mode) | What happens |
+|---|---|---|
+| "Create a high-priority task to review the architecture document on Friday 14 November." | `TaskAgent` | `createTask` with `priority=HIGH` and the date in `yyyy-MM-dd` |
+| "Show me all my pending high-priority tasks." | `TaskAgent` | `listTasks(statuses=[TODO, IN_PROGRESS], priority=HIGH)`, lists real results only |
+| "Mark the API review task as completed." / "Move its due date to 2026-11-20." | `TaskAgent` | `listTasks` to find it, then `updateTaskStatus` / `updateTask` |
+| "What should I focus on first?" / "Which tasks are most urgent?" | `PriorityAgent` | `getPlanningContext`, `findTasks(TODO, IN_PROGRESS)`, ranked list with reasons; recommends, never changes |
+| "Plan my day." / "How do I fit my tasks into today?" | `PlanningAgent` | time-boxed plan within the daily available minutes, deferred tasks listed, assumptions stated |
+| "Summarise my progress this week." / "How am I doing?" | `SummaryAgent` | `getTaskStatistics` + `findTasks` (overdue, due soon, in progress, recently completed) |
+| "Summarise my week, then plan tomorrow." | `SummaryAgent` → `PlanningAgent` | two sub-agent invocations in one request |
+| "Hello" / "What can you do?" | the supervisor itself | answers directly, no agent call |
 
-Everyday words map naturally: *pending/open* = not completed, *done* = completed, *urgent* = HIGH.
-Updates, status changes and deletion are not available through the agent yet (see Known limitations); use the task views.
+Everyday words map naturally: *pending/open* = not completed, *done* = completed, *urgent* = HIGH. In **TaskAgent**
+mode everything goes to the single agent, which handles the first three rows and politely declines the rest.
+Deletion is not available through either mode (see Known limitations); use the task views.
 
 ### How tool errors are handled
 
@@ -475,8 +593,18 @@ mvn clean verify
 
 Covers: task creation defaults, completion/reopen timestamps, updates, unknown ids, dashboard statistics (unit);
 Flyway migrations, repository filtering/sorting/pagination, REST endpoints, validation errors, persistence (integration).
-These are the Phase 0 tests; the Phase 1 agent has no automated tests yet (a scripted `ChatModel` test double is on the
-roadmap). To try the agent, start the backend with `OPENAI_API_KEY` set and use the curl command in section 12.
+
+Phase 2 adds tests that need **no OpenAI key**: `ScriptedChatModel` replays the planner's and the agents' answers in
+order while the real LangChain4j supervisor loop, the real tools and (in the integration tests) the real database run:
+
+- `TaskFlowSupervisorTest` (unit): routing to each agent, read-only tools for the specialists, memory across turns,
+  the date context in every prompt, tool errors fed back to the model, the invocation limit, provider error translation
+- `SupervisorApiIntegrationTest` (Spring + PostgreSQL + MockMvc): `POST /api/ai/supervisor/chat` creates a real task
+  through `TaskAgent`, `SummaryAgent` reads real statistics, validation and `ProblemDetail` errors, `GET /api/ai/agents`,
+  and the Phase 1 endpoint still working
+- `TaskToolsTest`, `TaskQueryToolsTest` (unit): argument mapping, timezone-aware dates, error messages for the model
+
+To try the agents for real, start the backend with `OPENAI_API_KEY` set and use the curl commands in section 12.
 
 **Frontend** (Vitest + Testing Library):
 
@@ -489,7 +617,8 @@ npm run typecheck
 ```
 
 Covers: task form validation, task list rendering (badges, overdue highlight, empty/loading/error states),
-task creation through the drawer, complete/reopen status updates, date helpers, and the assistant page.
+task creation through the drawer, complete/reopen status updates, date helpers, and the assistant page in both modes
+(supervisor routing, execution details, mode switch persistence).
 
 ---
 
@@ -497,14 +626,26 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 
 - **No authentication.** Everything runs as a single user; conversation ids are generated by the browser and are not
   bound to an identity.
-- **The agent does not know today's date.** Relative dates ("tomorrow", "next Friday") are a guess; give absolute dates,
-  or add the date and timezone to the system prompt (planned: inject `currentDate` / `timezone` from the `Clock` bean
-  and the user's preference).
-- **Read and create only.** There are no `updateTask`, `updateTaskStatus` or delete tools yet. Deletion, when it comes,
-  will go through a backend-enforced confirmation rather than a tool the model can call.
-- **Conversation memory is in-process**: a sliding window of 30 messages per conversation, lost on restart.
-- **No cap on tool round trips beyond LangChain4j's default**, and no token-usage reporting to the UI yet.
-- **No streaming**: replies arrive when the agent finishes. Typical turns take 1–4 s with tool calls.
+- **No delete tool.** Deletion, when it comes, will go through a backend-enforced confirmation rather than a tool the
+  model can call. Create, read, update and status changes are available (`TaskAgent`).
+- **Conversation memory is in-process**: sliding windows per conversation (TaskAgent and the supervisor's planner),
+  lost on restart. The three specialists keep no memory; each analysis starts from the live data.
+- **Conversation memory is never evicted.** Each window is bounded, but the number of conversations is not: every new
+  `conversationId` (chosen by the browser, unauthenticated) allocates a memory in the Phase 1 TaskAgent, the Phase 2
+  TaskAgent and the planner, and they live until restart. `memory.retention` and `memory.max-conversations` are
+  reserved for this and not enforced yet; do not expose the backend publicly as it is.
+- **The two modes do not share memory.** The Phase 1 TaskAgent and the supervisor's TaskAgent are separate
+  instances, so the UI starts a new conversation when you switch mode.
+- **The supervisor costs more than one agent.** Every request pays at least two extra LLM calls (planner in, planner
+  "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage` so this can
+  be measured; Phase 3 is about reducing it.
+- **Routing is probabilistic.** The planner is an LLM; an ambiguous message may go to a less suitable agent. Each
+  specialist states what it did, and only `TaskAgent` can change data, so a wrong route costs time, not data.
+- **Time estimates in plans are assumptions.** Tasks have no duration field, so `PlanningAgent` guesses modest durations
+  and says so; the daily available minutes come from the preferences.
+- **In the Phase 1 TaskAgent mode the date is a tool call away**: the agent must call `getToday` for relative
+  dates; in Supervisor mode the date is injected into every prompt.
+- **No streaming**: replies arrive when the agent finishes. A supervisor turn takes 3–10 s depending on the route.
 - **Task search is `LIKE`-based**, so the agent may ask you to disambiguate titles more often than a semantic search would.
 - **Tool results are the REST DTOs** (`TaskResponse`, `PageResponse`); flat, string-typed result records for the model
   are planned.
@@ -515,12 +656,14 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 
 - **Phase 1 — Single agent (done).** LangChain4j + OpenAI; the `TaskAgent` exposes `TaskService` operations as tools and
   keeps conversation context. See [`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md).
-  Next steps within Phase 1: date context in the prompt, update/status tools, a confirmation workflow for deletion,
-  token usage and tool-call visibility in the response, guardrails, persistent memory, tests with a scripted model.
-- **Phase 2 — Multi-agent orchestration.** A `SupervisorAgent` routes requests to specialised agents (`TaskAgent`,
-  `PriorityAgent`, `PlanningAgent`, `SummaryAgent`), using the timezone and daily available minutes preferences for planning.
+- **Phase 2 — Multi-agent orchestration (done).** The `TaskFlowSupervisor` routes requests to `TaskAgent`,
+  `PriorityAgent`, `PlanningAgent` and `SummaryAgent`, using the timezone and daily available minutes for planning,
+  and reports agents, tools, LLM calls and tokens per request. See
+  [`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md). Still open: a confirmation workflow for
+  deletion, guardrails, persistent memory, streaming.
 - **Phase 3 — Cost-aware routing.** Compare a Java rules router, Jev (TypeSafe AI's typed decision model), a cheaper
   model and the LLM supervisor on a fixed benchmark: routing accuracy, task success, tokens, cost and latency.
 
-See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md) and
-[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md) for the design decisions behind each phase.
+See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),
+[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md) and
+[`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md) for the design decisions behind each phase.

@@ -13,6 +13,8 @@ vi.mock("@/lib/api/ai", () => ({
     status: vi.fn(),
     startConversation: vi.fn(),
     chat: vi.fn(),
+    supervise: vi.fn(),
+    agents: vi.fn(),
     approve: vi.fn(),
     reject: vi.fn(),
   },
@@ -49,7 +51,92 @@ describe("AssistantChat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.sessionStorage.clear();
+    // The existing tests exercise the Phase 1 TaskAgent; the supervisor tests below switch mode explicitly.
+    window.sessionStorage.setItem("taskflow.assistant", JSON.stringify({ conversationId: null, messages: [], mode: "agent" }));
     mockedApi.status.mockResolvedValue({ available: true, model: "gpt-4o-mini" });
+  });
+
+  it("defaults to the supervisor and routes messages to the supervisor endpoint", async () => {
+    window.sessionStorage.clear();
+    mockedApi.supervise.mockResolvedValue(
+      reply({
+        message: "Here is your plan for today.",
+        dataChanged: false,
+        execution: {
+          requestId: "req-s1",
+          durationMs: 3210,
+          llmCalls: 4,
+          agents: [{ name: "PlanningAgent", durationMs: 1830, success: true }],
+          toolCalls: [{ name: "getPlanningContext", durationMs: 3, success: true }, { name: "findTasks", durationMs: 14, success: true }],
+          tokenUsage: { inputTokens: 2000, outputTokens: 300, totalTokens: 2300 },
+        },
+      }),
+    );
+    renderWithProviders(<AssistantChat />);
+
+    expect(screen.getByTestId("active-mode")).toHaveTextContent("TaskFlow Supervisor");
+    expect(screen.getByRole("heading", { name: "Ask the TaskFlow Supervisor" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Supervisor" })).toBeChecked();
+
+    await typeAndSend("Plan my day");
+
+    await waitFor(() => expect(screen.getByTestId("message-assistant")).toHaveTextContent("Here is your plan for today."));
+    expect(mockedApi.supervise).toHaveBeenCalledWith({ conversationId: expect.any(String), message: "Plan my day" });
+    expect(mockedApi.chat).not.toHaveBeenCalled();
+    const details = screen.getByText("Execution details").parentElement!;
+    expect(details).toHaveTextContent("Agents: PlanningAgent (1830 ms)");
+    expect(details).toHaveTextContent("4 LLM calls");
+  });
+
+  it("switches to the single TaskAgent and remembers the choice", async () => {
+    window.sessionStorage.clear();
+    mockedApi.chat.mockResolvedValue(reply({ message: "Created it." }));
+    renderWithProviders(<AssistantChat />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("radio", { name: "TaskAgent" }));
+
+    expect(screen.getByTestId("active-mode")).toHaveTextContent("TaskAgent");
+    expect(screen.getByRole("heading", { name: "Ask TaskAgent" })).toBeInTheDocument();
+    await typeAndSend("Create a task");
+    await waitFor(() => expect(mockedApi.chat).toHaveBeenCalledWith({ conversationId: expect.any(String), message: "Create a task" }));
+    expect(mockedApi.supervise).not.toHaveBeenCalled();
+    expect(JSON.parse(window.sessionStorage.getItem("taskflow.assistant")!).mode).toBe("agent");
+  });
+
+  it("starts a new conversation when the mode changes, because each mode has its own memory", async () => {
+    window.sessionStorage.clear();
+    mockedApi.supervise.mockResolvedValue(reply({ conversationId: "conv-supervisor", message: "Here is your plan." }));
+    mockedApi.chat.mockResolvedValue(reply({ message: "Created it." }));
+    renderWithProviders(<AssistantChat />);
+
+    const user = await typeAndSend("Plan my day");
+    await waitFor(() => expect(screen.getByTestId("message-assistant")).toHaveTextContent("Here is your plan."));
+
+    await user.click(screen.getByRole("radio", { name: "TaskAgent" }));
+
+    expect(screen.queryByTestId("message-assistant")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ask TaskAgent" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Message the assistant"), "Create a task{Enter}");
+    await waitFor(() => expect(mockedApi.chat).toHaveBeenCalledTimes(1));
+    expect(mockedApi.chat.mock.calls[0][0].conversationId).not.toBe("conv-supervisor");
+  });
+
+  it("refreshes task data when a supervisor request fails, since an agent may already have changed tasks", async () => {
+    window.sessionStorage.clear();
+    mockedApi.supervise.mockRejectedValueOnce(new ApiError(504, { title: "AI service error", detail: "The AI service took too long to answer." }));
+    renderWithProviders(
+      <>
+        <VersionProbe />
+        <AssistantChat />
+      </>,
+    );
+    expect(screen.getByTestId("version")).toHaveTextContent("0");
+
+    await typeAndSend("Create a task and plan my day");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("took too long");
+    expect(screen.getByTestId("version")).toHaveTextContent("1");
   });
 
   it("renders user and assistant messages and shows a loading indicator while waiting", async () => {
@@ -61,7 +148,7 @@ describe("AssistantChat", () => {
 
     expect(screen.getByTestId("message-user")).toHaveTextContent("Show my pending tasks");
     expect(screen.getByRole("status")).toHaveTextContent("Thinking");
-    expect(mockedApi.chat).toHaveBeenCalledWith({ conversationId: null, message: "Show my pending tasks" });
+    expect(mockedApi.chat).toHaveBeenCalledWith({ conversationId: expect.any(String), message: "Show my pending tasks" });
 
     resolve(reply({ message: "You have 3 pending tasks." }));
     await waitFor(() => expect(screen.getByTestId("message-assistant")).toHaveTextContent("You have 3 pending tasks."));

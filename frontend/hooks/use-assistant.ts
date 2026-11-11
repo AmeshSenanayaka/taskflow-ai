@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDataRefresh } from "@/components/providers/app-providers";
 import { ApiError, getErrorMessage } from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
-import type { AgentExecutionInfo, AiStatus, ChatResponse, PendingConfirmation } from "@/types/ai";
+import type { AgentExecutionInfo, AiStatus, AssistantMode, ChatResponse, PendingConfirmation } from "@/types/ai";
 
 export type ConfirmationState = "pending" | "approved" | "rejected" | "expired";
 
@@ -12,6 +12,8 @@ export interface AssistantMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Which entry point produced an assistant message (absent on user messages). */
+  mode?: AssistantMode;
   /** Set on assistant messages that ask the user to approve a destructive operation. */
   confirmation?: PendingConfirmation | null;
   confirmationState?: ConfirmationState;
@@ -25,16 +27,23 @@ const STORAGE_KEY = "taskflow.assistant";
 interface PersistedState {
   conversationId: string | null;
   messages: AssistantMessage[];
+  mode: AssistantMode;
 }
+
+const DEFAULT_MODE: AssistantMode = "supervisor";
 
 function loadPersisted(): PersistedState {
   try {
     const raw = window.sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return { conversationId: null, messages: [] };
-    const parsed = JSON.parse(raw) as PersistedState;
-    return { conversationId: parsed.conversationId ?? null, messages: parsed.messages ?? [] };
+    if (!raw) return { conversationId: null, messages: [], mode: DEFAULT_MODE };
+    const parsed = JSON.parse(raw) as Partial<PersistedState>;
+    return {
+      conversationId: parsed.conversationId ?? null,
+      messages: parsed.messages ?? [],
+      mode: parsed.mode === "agent" || parsed.mode === "supervisor" ? parsed.mode : DEFAULT_MODE,
+    };
   } catch {
-    return { conversationId: null, messages: [] };
+    return { conversationId: null, messages: [], mode: DEFAULT_MODE };
   }
 }
 
@@ -51,14 +60,20 @@ function newId(): string {
 }
 
 /**
- * Chat state for the AI assistant. Keeps the transcript and conversation id in sessionStorage so
+ * Chat state for the AI assistant. Keeps the transcript, conversation id and mode in sessionStorage so
  * navigating between pages does not lose context, and bumps the shared data-refresh version after
  * any response that changed task data so lists and statistics stay in sync.
+ *
+ * Two modes: "agent" talks to the single Phase 1 TaskAgent, "supervisor" to the Phase 2 TaskFlowSupervisor
+ * that routes to TaskAgent, PriorityAgent, PlanningAgent and SummaryAgent. The backend keeps a separate chat
+ * memory per entry point, so switching mode starts a new conversation instead of showing a transcript the
+ * other agent has never seen.
  */
 export function useAssistant() {
   const { invalidate } = useDataRefresh();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [mode, setMode] = useState<AssistantMode>(DEFAULT_MODE);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,12 +87,13 @@ export function useAssistant() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessages(persisted.messages);
     setConversationId(persisted.conversationId);
+    setMode(persisted.mode);
     hydrated.current = true;
   }, []);
 
   useEffect(() => {
-    if (hydrated.current) persist({ conversationId, messages });
-  }, [conversationId, messages]);
+    if (hydrated.current) persist({ conversationId, messages, mode });
+  }, [conversationId, messages, mode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,20 +105,21 @@ export function useAssistant() {
   }, []);
 
   const applyResponse = useCallback(
-    (response: ChatResponse) => {
+    (response: ChatResponse, responseMode: AssistantMode) => {
       setConversationId(response.conversationId);
       setMessages((current) => [
         ...current,
         {
           id: newId(),
           role: "assistant",
+          mode: responseMode,
           content: response.message,
           confirmation: response.pendingConfirmation ?? null,
           confirmationState: response.pendingConfirmation ? "pending" : undefined,
           execution: response.execution,
         },
       ]);
-      // The backend does not report dataChanged yet, so refresh task lists and stats after every reply.
+      // The Phase 1 endpoint does not report dataChanged, so refresh after every reply in that case.
       if (response.dataChanged ?? true) invalidate();
     },
     [invalidate],
@@ -122,16 +139,20 @@ export function useAssistant() {
       const id = conversationId ?? newId();
       if (!conversationId) setConversationId(id);
       try {
-        const response: ChatResponse = await aiApi.chat({ conversationId: id, message });
-        applyResponse(response);
+        const request = { conversationId: id, message };
+        const response: ChatResponse = mode === "supervisor" ? await aiApi.supervise(request) : await aiApi.chat(request);
+        applyResponse(response, mode);
       } catch (caught) {
         setError(getErrorMessage(caught));
         setMessages((current) => current.map((item) => (item.id === userMessage.id ? { ...item, failed: true } : item)));
+        // A supervisor turn can fail after TaskAgent already changed data (a later LLM call timing out), and the
+        // error response carries no dataChanged flag. Refresh so the lists show what was saved before a retry.
+        if (mode === "supervisor") invalidate();
       } finally {
         setIsSending(false);
       }
     },
-    [applyResponse, conversationId, isSending],
+    [applyResponse, conversationId, invalidate, isSending, mode],
   );
 
   const decide = useCallback(
@@ -149,7 +170,7 @@ export function useAssistant() {
             item.id === messageId ? { ...item, confirmationState: decision === "approve" ? "approved" : "rejected" } : item,
           ),
         );
-        applyResponse(response);
+        applyResponse(response, mode);
       } catch (caught) {
         const expired = caught instanceof ApiError && [403, 404, 410].includes(caught.status);
         if (expired) {
@@ -162,7 +183,7 @@ export function useAssistant() {
         setIsSending(false);
       }
     },
-    [applyResponse, conversationId, isSending],
+    [applyResponse, conversationId, isSending, mode],
   );
 
   const newConversation = useCallback(() => {
@@ -170,6 +191,17 @@ export function useAssistant() {
     setConversationId(null);
     setError(null);
   }, []);
+
+  const changeMode = useCallback(
+    (next: AssistantMode) => {
+      if (next === mode) return;
+      setMode(next);
+      // Each entry point has its own chat memory on the backend: a follow-up such as "change its priority"
+      // would not resolve against messages the other agent never received.
+      newConversation();
+    },
+    [mode, newConversation],
+  );
 
   const retryLast = useCallback(() => {
     const failed = [...messages].reverse().find((item) => item.failed);
@@ -179,6 +211,8 @@ export function useAssistant() {
   return {
     messages,
     conversationId,
+    mode,
+    setMode: changeMode,
     status,
     isSending,
     error,

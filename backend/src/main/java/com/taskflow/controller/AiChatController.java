@@ -1,8 +1,11 @@
 package com.taskflow.controller;
 import com.taskflow.ai.agent.TaskAgent;
+import com.taskflow.ai.dto.AgentDescriptor;
+import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.exception.AiServiceException;
+import com.taskflow.ai.service.MultiAgentService;
 import com.taskflow.config.OpenApiConfig;
-import dev.langchain4j.service.Result;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -14,8 +17,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
- * HTTP surface of the AI assistant. It only validates input and delegates to {@link com.taskflow.ai.agent.TaskAgent};
+ * HTTP surface of the AI assistant. It only validates input and delegates to the Phase 1
+ * {@link com.taskflow.ai.agent.TaskAgent} ({@code /chat}) or the Phase 2 {@link MultiAgentService} ({@code /supervisor/chat});
  * no LLM or tool logic lives here.
  */
 @Slf4j
@@ -27,6 +33,7 @@ import org.springframework.web.bind.annotation.*;
 public class AiChatController {
 
     private final TaskAgent taskAgentService;
+    private final MultiAgentService multiAgentService;
 
     @Value("${langchain4j.open-ai.chat-model.model-name:unknown}")
     private String modelName;
@@ -37,11 +44,12 @@ public class AiChatController {
         return new AiStatus(true, modelName, null);
     }
 
+    @Operation(summary = "Send a message to the single TaskAgent (Phase 1)")
     @PostMapping("/chat")
     public ResponseEntity<ChatResponse> chat(
             @Valid @RequestBody ChatRequest request
     ) {
-        Result<String> response;
+        String response;
         try {
             response = taskAgentService.chat(
                     request.conversationId(),
@@ -59,9 +67,24 @@ public class AiChatController {
         return ResponseEntity.ok(
                 new ChatResponse(
                         request.conversationId(),
-                        response.content()
+                        response
                 )
         );
+    }
+
+    @Operation(summary = "Send a message to the TaskFlowSupervisor (Phase 2)",
+            description = "The supervisor decides which specialised agents to call (TaskAgent, PriorityAgent, "
+                    + "PlanningAgent, SummaryAgent), runs them and returns the composed answer together with the "
+                    + "agents and tools it used.")
+    @PostMapping("/supervisor/chat")
+    public SupervisorChatResponse supervise(@Valid @RequestBody ChatRequest request) {
+        return multiAgentService.chat(request.conversationId(), request.message());
+    }
+
+    @Operation(summary = "List the specialised agents available behind the supervisor")
+    @GetMapping("/agents")
+    public List<AgentDescriptor> agents() {
+        return multiAgentService.agents();
     }
 
     public record ChatRequest(

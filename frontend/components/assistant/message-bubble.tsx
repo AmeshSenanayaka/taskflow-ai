@@ -17,11 +17,19 @@ function describeExecution(message: AssistantMessage): string | null {
   const execution = message.execution;
   if (!execution) return null;
   const parts: string[] = [];
+  if (execution.agents && execution.agents.length > 0) {
+    parts.push(
+      `Agents: ${execution.agents.map((call) => `${call.name} (${call.durationMs} ms${call.success ? "" : ", failed"})`).join(" > ")}`,
+    );
+  } else if (execution.agents && message.mode === "supervisor") {
+    parts.push("Answered by the supervisor directly");
+  }
   if (execution.toolCalls.length > 0) {
     parts.push(
       `Tools: ${execution.toolCalls.map((call) => `${call.name} (${call.durationMs} ms${call.success ? "" : ", failed"})`).join(", ")}`,
     );
   }
+  if (execution.llmCalls) parts.push(`${execution.llmCalls} LLM call${execution.llmCalls === 1 ? "" : "s"}`);
   if (execution.tokenUsage?.totalTokens) parts.push(`${execution.tokenUsage.totalTokens} tokens`);
   parts.push(`${execution.durationMs} ms`);
   return parts.join(" · ");
