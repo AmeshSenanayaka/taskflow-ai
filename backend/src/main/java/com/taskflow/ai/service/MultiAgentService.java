@@ -39,7 +39,18 @@ public class MultiAgentService {
             "I could not produce an answer for that request. Please try rephrasing it.";
 
     private final TaskFlowSupervisor supervisor;
-    private final Map<String, ReentrantLock> conversationLocks = new ConcurrentHashMap<>();
+    private final Map<String, ConversationLock> conversationLocks = new ConcurrentHashMap<>();
+
+    /**
+     * A per-conversation lock with a count of the requests using it. The count is only touched inside
+     * {@code ConcurrentHashMap.compute}, which is atomic per key, so an entry is removed only when no request
+     * holds or is about to take its lock; a plain "remove when unlocked" check can drop a lock another thread
+     * has already fetched and let two turns of one conversation run at once.
+     */
+    private static final class ConversationLock {
+        private final ReentrantLock lock = new ReentrantLock();
+        private int users;
+    }
 
     public MultiAgentService(TaskFlowSupervisor supervisor) {
         this.supervisor = supervisor;
@@ -47,8 +58,12 @@ public class MultiAgentService {
 
     public SupervisorChatResponse chat(String conversationId, String message) {
         String requestId = UUID.randomUUID().toString();
-        ReentrantLock lock = conversationLocks.computeIfAbsent(conversationId, id -> new ReentrantLock());
-        lock.lock();
+        ConversationLock entry = conversationLocks.compute(conversationId, (id, existing) -> {
+            ConversationLock current = existing == null ? new ConversationLock() : existing;
+            current.users++;
+            return current;
+        });
+        entry.lock.lock();
         try {
             MDC.put("requestId", requestId);
             MDC.put("conversationId", conversationId);
@@ -56,10 +71,8 @@ public class MultiAgentService {
         } finally {
             MDC.remove("requestId");
             MDC.remove("conversationId");
-            lock.unlock();
-            if (!lock.isLocked() && !lock.hasQueuedThreads()) {
-                conversationLocks.remove(conversationId, lock);
-            }
+            entry.lock.unlock();
+            conversationLocks.computeIfPresent(conversationId, (id, current) -> --current.users == 0 ? null : current);
         }
     }
 

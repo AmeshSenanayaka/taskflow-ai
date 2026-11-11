@@ -2,6 +2,9 @@ package com.taskflow.ai.orchestration;
 
 import com.taskflow.ai.dto.AgentCallInfo;
 import com.taskflow.ai.dto.ToolCallInfo;
+import com.taskflow.ai.tool.MutatesTasks;
+import com.taskflow.ai.tool.TaskTools;
+import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.observability.AfterAgentToolExecution;
 import dev.langchain4j.agentic.observability.AgentInvocationError;
 import dev.langchain4j.agentic.observability.AgentListener;
@@ -12,10 +15,13 @@ import dev.langchain4j.service.tool.ToolExecution;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A LangChain4j {@link AgentListener} that records, per HTTP request, which agents the supervisor invoked,
@@ -29,8 +35,21 @@ import java.util.Set;
 @Slf4j
 public class AgentRunRecorder implements AgentListener {
 
-    /** Tool names whose successful execution means task data changed and the UI should refresh. */
-    private static final Set<String> MUTATING_TOOLS = Set.of("createTask", "updateTask", "updateTaskStatus");
+    /**
+     * Tool names whose successful execution means task data changed and the UI should refresh: every
+     * {@code @Tool} method of {@link TaskTools} marked {@link MutatesTasks}.
+     */
+    private static final Set<String> MUTATING_TOOLS = mutatingToolNames(TaskTools.class);
+
+    static Set<String> mutatingToolNames(Class<?> toolClass) {
+        return Arrays.stream(toolClass.getMethods())
+                .filter(method -> method.isAnnotationPresent(Tool.class) && method.isAnnotationPresent(MutatesTasks.class))
+                .map(method -> {
+                    String declared = method.getAnnotation(Tool.class).name();
+                    return declared.isBlank() ? method.getName() : declared;
+                })
+                .collect(Collectors.toUnmodifiableSet());
+    }
 
     private static final ThreadLocal<Run> CURRENT = new ThreadLocal<>();
 
@@ -41,7 +60,8 @@ public class AgentRunRecorder implements AgentListener {
         private final Map<String, Long> startedAt = new HashMap<>();
         private TokenUsage tokenUsage;
         private int llmCalls;
-        private String lastAgentOutput;
+        /** Latest text answer per sub-agent, in the order the answers were produced. */
+        private final Map<String, String> agentOutputs = new LinkedHashMap<>();
         private boolean dataChanged;
 
         public List<AgentCallInfo> agents() {
@@ -87,10 +107,13 @@ public class AgentRunRecorder implements AgentListener {
         }
     }
 
-    /** The text answer of the last sub-agent that completed in the current request, or null. */
-    static String lastAgentOutput() {
+    /**
+     * The text answers of the sub-agents that completed in the current request, in order. An agent the planner
+     * called more than once contributes its latest answer only, so a retried agent is not repeated to the user.
+     */
+    static List<String> agentAnswers() {
         Run run = CURRENT.get();
-        return run == null ? null : run.lastAgentOutput;
+        return run == null ? List.of() : List.copyOf(run.agentOutputs.values());
     }
 
     @Override
@@ -119,8 +142,10 @@ public class AgentRunRecorder implements AgentListener {
         if (subAgent) {
             // The supervisor's own completion is not a "hop" the user cares about; only sub-agents are listed.
             run.agents.add(new AgentCallInfo(response.agentName(), durationMs, true));
-            if (response.output() instanceof String text) {
-                run.lastAgentOutput = text;
+            if (response.output() instanceof String text && !text.isBlank()) {
+                // remove + put moves a repeated agent to the end, keeping "order of the latest answers".
+                run.agentOutputs.remove(response.agentName());
+                run.agentOutputs.put(response.agentName(), text);
             }
         }
         log.info("agent.invoked name={} durationMs={} subAgent={}", response.agentName(), durationMs, subAgent);

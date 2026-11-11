@@ -37,7 +37,7 @@ One supervisor turn, for "Summarise my week and plan tomorrow":
 planner ──▶ SummaryAgent  [getPlanningContext, getTaskStatistics, findTasks] ──▶ "7 of 20 done, 2 overdue…"
 planner ──▶ PlanningAgent [getPlanningContext, findTasks]                   ──▶ "Plan for 2026-11-09: …"
 planner ──▶ done
-response: message = PlanningAgent's answer (LAST), agents = [SummaryAgent, PlanningAgent], llmCalls = 8
+response: message = SummaryAgent's answer + PlanningAgent's answer (LAST), agents = [SummaryAgent, PlanningAgent], llmCalls = 8
 ```
 
 Package layout under `com.taskflow.ai` (Phase 1 packages unchanged):
@@ -115,8 +115,10 @@ Package layout under `com.taskflow.ai` (Phase 1 packages unchanged):
    endpoint, which has no transformer, can resolve relative dates too.
 5. **`LAST` response strategy with a safe fallback.** LangChain4j's `LAST` returns `null` when the planner answers
    without calling any agent. The factory therefore builds the supervisor with `SUMMARY` (the planner always writes a
-   recap) and an `output` function that prefers the last sub-agent's verbatim answer when there is one. A plan or a
-   summary reaches the user unchanged; greetings get the planner's own answer. `SUMMARY` and `SCORED` remain available
+   recap) and an `output` function that prefers the sub-agents' verbatim answers when there are any: one agent's
+   answer as it is, several agents' answers joined in the order they ran (a repeated agent contributes its latest
+   answer only). A plan or a summary reaches the user unchanged and none is dropped; greetings get the planner's own
+   answer. `SUMMARY` and `SCORED` remain available
    through `AI_SUPERVISOR_RESPONSE_STRATEGY`.
 6. **Observability through an `AgentListener` and a `ChatModel` decorator.** `AgentRunRecorder` (listener, inherited by
    sub-agents) records which agents ran, how long, which tools they called and whether they failed, in a per-request
@@ -190,8 +192,8 @@ scripted tests prove the loop, the wiring and the tools; routing quality with `g
 
 ## 8. Known limitations
 
-See README section 14: extra LLM calls per request, probabilistic routing, assumed task durations, in-process memory,
-no delete tool, no streaming.
+See README section 14: extra LLM calls per request, probabilistic routing, assumed task durations, in-process memory
+that is never evicted, separate memories per mode, no delete tool, no streaming.
 
 ## 9. Suggested commit and pull request
 

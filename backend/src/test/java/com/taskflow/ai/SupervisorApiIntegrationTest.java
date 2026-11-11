@@ -139,6 +139,8 @@ class SupervisorApiIntegrationTest extends AbstractAiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("You have no pending tasks."));
         assertThat(ScriptedChatModel.toolNames(model.requests().get(0)))
-                .contains("createTask", "listTasks", "getTaskById", "updateTask", "updateTaskStatus", "getToday");
+                .contains("createTask", "listTasks", "getTaskById", "updateTask", "updateTaskStatus", "getToday")
+                // the supervisor's read-only tools must not leak into the Phase 1 agent
+                .doesNotContain("findTasks", "getPlanningContext", "getTaskStatistics");
     }
 }

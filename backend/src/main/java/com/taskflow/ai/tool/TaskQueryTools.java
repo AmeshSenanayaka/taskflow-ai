@@ -15,7 +15,6 @@ import com.taskflow.specification.TaskSort;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -32,9 +31,12 @@ import java.util.function.Supplier;
  * {@code SummaryAgent}). Keeping them in a separate class from {@link TaskTools} is what makes those agents
  * read-only by construction: they are never given a tool that can create or change a task, so no prompt
  * injection or model mistake can turn an analysis into a mutation.
+ * <p>
+ * Deliberately not a Spring bean: the LangChain4j starter gives every bean with {@code @Tool} methods to each
+ * {@code @AiService}, which would hand these tools to the Phase 1 {@code TaskAgent} as well (duplicating
+ * {@code listTasks} and {@code getToday}). {@code MultiAgentConfig} creates the instance for the supervisor.
  */
 @Slf4j
-@Component
 public class TaskQueryTools {
 
     static final int MAX_RESULTS = 50;

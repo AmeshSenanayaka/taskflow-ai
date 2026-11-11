@@ -42,20 +42,6 @@ taskflow:
     dev-user-id: ${TASKFLOW_DEV_USER_ID:local-user}
     # Upper bound on LLM -> tool -> LLM round trips per user message.
     max-tool-round-trips: ${AI_MAX_TOOL_ROUND_TRIPS:8}
-    azure:
-      # All three are required to enable the assistant; leave them unset to run without AI features.
-      endpoint: ${AZURE_OPENAI_ENDPOINT:https://senanayakaamesh2-0888-resource.openai.azure.com/openai/v1}
-      api-key: ${AZURE_OPENAI_API_KEY:}
-      deployment-name: ${AZURE_OPENAI_DEPLOYMENT_NAME:}
-      # Optional. Blank = latest API version supported by the Azure SDK.
-      api-version: ${AZURE_OPENAI_API_VERSION:}
-      temperature: ${AZURE_OPENAI_TEMPERATURE:0.2}
-      max-tokens: ${AZURE_OPENAI_MAX_TOKENS:1024}
-      timeout: ${AZURE_OPENAI_TIMEOUT:30s}
-      # Retries inside the Azure SDK for transient failures. Kept low to avoid retry storms.
-      max-retries: ${AZURE_OPENAI_MAX_RETRIES:1}
-      # Logs full request/response bodies (including task content). Development only.
-      log-requests: ${AZURE_OPENAI_LOG_REQUESTS:false}
     memory:
       max-messages: ${AI_MEMORY_MAX_MESSAGES:30}
       retention: ${AI_MEMORY_RETENTION:2h}

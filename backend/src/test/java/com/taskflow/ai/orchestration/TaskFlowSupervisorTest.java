@@ -163,8 +163,7 @@ class TaskFlowSupervisorTest {
         UUID id = UUID.randomUUID();
         TaskResponse article = task(id, "Write the article", TaskPriority.MEDIUM, TaskStatus.TODO, null);
         when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page(article));
-        when(taskService.getById(id)).thenReturn(article);
-        when(taskService.update(eq(id), any())).thenReturn(
+        when(taskService.patch(eq(id), any())).thenReturn(
                 task(id, "Write the article", TaskPriority.LOW, TaskStatus.TODO, null));
         model.invokeAgent("TaskAgent", "Find my article task")
                 .toolCall("listTasks", "{\"search\":\"article\",\"page\":0,\"size\":10}")
@@ -192,6 +191,36 @@ class TaskFlowSupervisorTest {
     }
 
     @Test
+    void aRequestForTwoAgentsReturnsBothAnswersInTheOrderTheyRan() {
+        when(dashboardService.getStats()).thenReturn(new DashboardStatsResponse(20, 8, 5, 7, 2, 3));
+        when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page());
+        model.invokeAgent("SummaryAgent", "Summarise my week")
+                .toolCall("getTaskStatistics", "{}")
+                .text("7 of 20 tasks completed, 2 overdue.")
+                .invokeAgent("PlanningAgent", "Plan tomorrow")
+                .toolCall("findTasks", "{\"statuses\":[\"TODO\",\"IN_PROGRESS\"]}")
+                .text("Plan for 2026-11-09: no open tasks to schedule.")
+                .done("Summarised the week and planned tomorrow.");
+
+        SupervisorChatResponse response = service.chat("conv-9", "Summarise my week and then plan tomorrow");
+
+        // Neither answer is dropped and neither is re-told by the planner.
+        assertThat(response.message()).isEqualTo(
+                "7 of 20 tasks completed, 2 overdue.\n\nPlan for 2026-11-09: no open tasks to schedule.");
+        assertThat(response.execution().agents()).extracting(AgentCallInfo::name)
+                .containsExactly("SummaryAgent", "PlanningAgent");
+        assertThat(response.dataChanged()).isFalse();
+        assertThat(model.remainingScript()).isZero();
+    }
+
+    @Test
+    void onlyTheToolsMarkedAsMutatingReportDataChanged() {
+        assertThat(AgentRunRecorder.mutatingToolNames(TaskTools.class))
+                .containsExactlyInAnyOrder("createTask", "updateTask", "updateTaskStatus");
+        assertThat(AgentRunRecorder.mutatingToolNames(TaskQueryTools.class)).isEmpty();
+    }
+
+    @Test
     void analyticalAgentsCannotChangeTasks() {
         when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page());
         model.invokeAgent("PriorityAgent", "What should I focus on?")
@@ -206,6 +235,7 @@ class TaskFlowSupervisorTest {
                 .doesNotContain("createTask", "updateTask", "updateTaskStatus");
         verify(taskService, never()).create(any());
         verify(taskService, never()).update(any(), any());
+        verify(taskService, never()).patch(any(), any());
     }
 
     @Test

@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 
 /**
  * All task business rules live here. Controllers only translate HTTP to these calls,
@@ -65,7 +66,24 @@ public class TaskService {
 
     @Transactional
     public TaskResponse update(UUID id, UpdateTaskRequest request) {
-        Task task = findOrThrow(id);
+        return apply(findOrThrow(id), request);
+    }
+
+    /**
+     * Partial update: {@code change} receives the task's current values and returns the values to store.
+     * The row is locked for the duration of the transaction, so the read and the write cannot be separated
+     * by another writer (the AI {@code updateTask} tool changes one field and must not overwrite the others
+     * with values it read earlier).
+     */
+    @Transactional
+    public TaskResponse patch(UUID id, UnaryOperator<UpdateTaskRequest> change) {
+        Task task = taskRepository.findByIdForUpdate(id).orElseThrow(() -> new TaskNotFoundException(id));
+        UpdateTaskRequest current = new UpdateTaskRequest(
+                task.getTitle(), task.getDescription(), task.getPriority(), task.getStatus(), task.getDueDate());
+        return apply(task, change.apply(current));
+    }
+
+    private TaskResponse apply(Task task, UpdateTaskRequest request) {
         task.setTitle(request.title().trim());
         task.setDescription(normalize(request.description()));
         task.setPriority(request.priority());

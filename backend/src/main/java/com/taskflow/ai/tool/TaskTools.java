@@ -50,6 +50,7 @@ public class TaskTools {
     public record TodayResponse(String today, String timezone) {
     }
 
+    @MutatesTasks
     @Tool("Create a new task with a title, description, priority and due date")
     public TaskResponse createTask(
             @P("Task title") String title,
@@ -83,6 +84,7 @@ public class TaskTools {
         });
     }
 
+    @MutatesTasks
     @Tool("""
         Update an existing task. Only the fields you pass are changed; every other field keeps its current value.
         Use getTaskById or listTasks first to obtain the task id. Pass an empty string for dueDate to clear it.
@@ -100,22 +102,28 @@ public class TaskTools {
             if (taskId == null) {
                 throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
             }
-            TaskResponse current = taskService.getById(taskId);
-            String newTitle = title == null || title.isBlank() ? current.title() : title.trim();
-            String newDescription = description == null ? current.description() : description;
-            LocalDate newDueDate = dueDate == null ? current.dueDate()
-                    : dueDate.isBlank() ? null : parseDate(dueDate);
-            UpdateTaskRequest request = new UpdateTaskRequest(
-                    newTitle,
-                    newDescription,
-                    parseEnum(TaskPriority.class, priority, current.priority()),
-                    parseEnum(TaskStatus.class, status, current.status()),
-                    newDueDate
-            );
-            return taskService.update(taskId, request);
+            // Every argument is validated before anything is written: a value the tool cannot apply must be
+            // reported to the model, never replaced by the current value and answered with "success".
+            if (title != null && title.isBlank()) {
+                throw new ToolExecutionException("The new title cannot be blank. Pass null to keep the current title.");
+            }
+            TaskPriority newPriority = parseOptionalEnum(TaskPriority.class, priority, "priority", "LOW, MEDIUM or HIGH");
+            TaskStatus newStatus = parseOptionalEnum(TaskStatus.class, status, "status", "TODO, IN_PROGRESS or COMPLETED");
+            boolean clearDueDate = dueDate != null && dueDate.isBlank();
+            LocalDate newDueDate = clearDueDate ? null : parseDate(dueDate);
+            // The merge with the current values runs inside TaskService.patch, in one transaction on a locked row,
+            // so a concurrent edit of another field is not overwritten with a stale value.
+            return taskService.patch(taskId, current -> new UpdateTaskRequest(
+                    title == null ? current.title() : title.trim(),
+                    description == null ? current.description() : description,
+                    newPriority == null ? current.priority() : newPriority,
+                    newStatus == null ? current.status() : newStatus,
+                    clearDueDate ? null : newDueDate == null ? current.dueDate() : newDueDate
+            ));
         });
     }
 
+    @MutatesTasks
     @Tool("Change only the status of a task: TODO, IN_PROGRESS or COMPLETED. Marking COMPLETED records the completion time.")
     public TaskResponse updateTaskStatus(
             @P("Unique task ID") UUID taskId,
@@ -244,6 +252,19 @@ public class TaskTools {
         TaskSort.Field field = parseEnum(TaskSort.Field.class, sortBy, TaskSort.Field.CREATED_AT);
         TaskSort.Direction dir = parseEnum(TaskSort.Direction.class, direction, TaskSort.Direction.DESC);
         return new TaskSort(field, dir);
+    }
+
+    /** Null or blank means "not passed" (returns null); an unknown value is an error, not a silent no-op. */
+    private static <E extends Enum<E>> E parseOptionalEnum(Class<E> type, String value, String label, String allowed) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        E parsed = parseEnum(type, value, null);
+        if (parsed == null) {
+            throw new ToolExecutionException("Invalid " + label + " '" + value + "'. Use " + allowed
+                    + ". Nothing was changed.");
+        }
+        return parsed;
     }
 
     private static <E extends Enum<E>> E parseEnum(Class<E> type, String value, E fallback) {

@@ -381,11 +381,11 @@ npm start
 | `AI_SUPERVISOR_MAX_AGENT_INVOCATIONS` | `5` | Phase 2: sub-agent calls allowed per message (each costs ≥ 2 LLM calls) |
 | `AI_SUPERVISOR_MAX_TOOL_ROUND_TRIPS` | `8` | Phase 2: tool calls allowed inside one sub-agent invocation |
 | `AI_SUPERVISOR_MEMORY_MAX_MESSAGES` | `20` | Phase 2: the supervisor's own planning memory per conversation |
-| `AI_SUPERVISOR_RESPONSE_STRATEGY` | `LAST` | Phase 2: `LAST` (last agent's answer verbatim), `SUMMARY` (planner recap) or `SCORED` |
+| `AI_SUPERVISOR_RESPONSE_STRATEGY` | `LAST` | Phase 2: `LAST` (the agents' answers verbatim, in order; one agent: its answer), `SUMMARY` (planner recap) or `SCORED` |
 | `AI_SUPERVISOR_CONTEXT_STRATEGY` | `CHAT_MEMORY` | Phase 2: how the planner remembers earlier turns (`CHAT_MEMORY`, `SUMMARIZATION`, `CHAT_MEMORY_AND_SUMMARIZATION`) |
 
-Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory.retention`, `confirmation.ttl`, the
-`azure` block) are reserved for later work and are not read by the current code.
+Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory.retention`,
+`memory.max-conversations`, `confirmation.ttl`) are reserved for later work and are not read by the current code.
 
 **Frontend** (copy `frontend/.env.example` to `frontend/.env.local` to override):
 
@@ -630,6 +630,12 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
   model can call. Create, read, update and status changes are available (`TaskAgent`).
 - **Conversation memory is in-process**: sliding windows per conversation (TaskAgent and the supervisor's planner),
   lost on restart. The three specialists keep no memory; each analysis starts from the live data.
+- **Conversation memory is never evicted.** Each window is bounded, but the number of conversations is not: every new
+  `conversationId` (chosen by the browser, unauthenticated) allocates a memory in the Phase 1 TaskAgent, the Phase 2
+  TaskAgent and the planner, and they live until restart. `memory.retention` and `memory.max-conversations` are
+  reserved for this and not enforced yet; do not expose the backend publicly as it is.
+- **The two modes do not share memory.** The Phase 1 TaskAgent and the supervisor's TaskAgent are separate
+  instances, so the UI starts a new conversation when you switch mode.
 - **The supervisor costs more than one agent.** Every request pays at least two extra LLM calls (planner in, planner
   "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage` so this can
   be measured; Phase 3 is about reducing it.

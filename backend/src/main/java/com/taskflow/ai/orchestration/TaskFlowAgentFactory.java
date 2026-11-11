@@ -117,21 +117,23 @@ public class TaskFlowAgentFactory {
                 .listener(recorder);
         if (properties.responseStrategy() == SupervisorResponseStrategy.LAST) {
             // LangChain4j's own LAST strategy returns null when the planner answers without calling any agent
-            // (greetings, "what can you do"). We therefore let the planner always write its recap (SUMMARY) and
-            // prefer the last sub-agent's verbatim answer whenever there is one: a plan or a summary must reach the
-            // user unchanged, not re-told by the planner.
+            // (greetings, "what can you do") and drops every answer but the last when it called several
+            // ("summarise my week and then plan tomorrow"). We therefore let the planner always write its recap
+            // (SUMMARY) and prefer the sub-agents' verbatim answers whenever there are any: a plan or a summary
+            // must reach the user unchanged, not re-told by the planner, and none of them may be lost.
             builder.responseStrategy(SupervisorResponseStrategy.SUMMARY)
-                    .output(TaskFlowAgentFactory::lastAgentAnswerOrRecap);
+                    .output(TaskFlowAgentFactory::agentAnswersOrRecap);
         } else {
             builder.responseStrategy(properties.responseStrategy());
         }
         return builder.build();
     }
 
-    static Object lastAgentAnswerOrRecap(AgenticScope scope) {
-        String lastAgentAnswer = AgentRunRecorder.lastAgentOutput();
-        if (lastAgentAnswer != null && !lastAgentAnswer.isBlank()) {
-            return lastAgentAnswer;
+    /** Every sub-agent's answer in the order they ran (one agent: its answer verbatim), else the planner's recap. */
+    static Object agentAnswersOrRecap(AgenticScope scope) {
+        List<String> answers = AgentRunRecorder.agentAnswers();
+        if (!answers.isEmpty()) {
+            return String.join("\n\n", answers);
         }
         return scope.readState(SUPERVISOR_OUTPUT_KEY);
     }

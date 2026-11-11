@@ -33,7 +33,7 @@ export function ModeSwitch({ mode, onChange, disabled }: ModeSwitchProps) {
             type="button"
             role="radio"
             aria-checked={selected}
-            title={MODE_HELP[option]}
+            title={selected ? MODE_HELP[option] : `${MODE_HELP[option]} Switching starts a new conversation.`}
             disabled={disabled}
             onClick={() => onChange(option)}
             className={cn(

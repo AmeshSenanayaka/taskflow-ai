@@ -64,8 +64,10 @@ function newId(): string {
  * navigating between pages does not lose context, and bumps the shared data-refresh version after
  * any response that changed task data so lists and statistics stay in sync.
  *
- * Two modes share the same transcript: "agent" talks to the single Phase 1 TaskAgent, "supervisor" to
- * the Phase 2 TaskFlowSupervisor that routes to TaskAgent, PriorityAgent, PlanningAgent and SummaryAgent.
+ * Two modes: "agent" talks to the single Phase 1 TaskAgent, "supervisor" to the Phase 2 TaskFlowSupervisor
+ * that routes to TaskAgent, PriorityAgent, PlanningAgent and SummaryAgent. The backend keeps a separate chat
+ * memory per entry point, so switching mode starts a new conversation instead of showing a transcript the
+ * other agent has never seen.
  */
 export function useAssistant() {
   const { invalidate } = useDataRefresh();
@@ -143,11 +145,14 @@ export function useAssistant() {
       } catch (caught) {
         setError(getErrorMessage(caught));
         setMessages((current) => current.map((item) => (item.id === userMessage.id ? { ...item, failed: true } : item)));
+        // A supervisor turn can fail after TaskAgent already changed data (a later LLM call timing out), and the
+        // error response carries no dataChanged flag. Refresh so the lists show what was saved before a retry.
+        if (mode === "supervisor") invalidate();
       } finally {
         setIsSending(false);
       }
     },
-    [applyResponse, conversationId, isSending, mode],
+    [applyResponse, conversationId, invalidate, isSending, mode],
   );
 
   const decide = useCallback(
@@ -187,6 +192,17 @@ export function useAssistant() {
     setError(null);
   }, []);
 
+  const changeMode = useCallback(
+    (next: AssistantMode) => {
+      if (next === mode) return;
+      setMode(next);
+      // Each entry point has its own chat memory on the backend: a follow-up such as "change its priority"
+      // would not resolve against messages the other agent never received.
+      newConversation();
+    },
+    [mode, newConversation],
+  );
+
   const retryLast = useCallback(() => {
     const failed = [...messages].reverse().find((item) => item.failed);
     if (failed) void send(failed.content);
@@ -196,7 +212,7 @@ export function useAssistant() {
     messages,
     conversationId,
     mode,
-    setMode,
+    setMode: changeMode,
     status,
     isSending,
     error,

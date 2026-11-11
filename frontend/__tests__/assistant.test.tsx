@@ -104,6 +104,41 @@ describe("AssistantChat", () => {
     expect(JSON.parse(window.sessionStorage.getItem("taskflow.assistant")!).mode).toBe("agent");
   });
 
+  it("starts a new conversation when the mode changes, because each mode has its own memory", async () => {
+    window.sessionStorage.clear();
+    mockedApi.supervise.mockResolvedValue(reply({ conversationId: "conv-supervisor", message: "Here is your plan." }));
+    mockedApi.chat.mockResolvedValue(reply({ message: "Created it." }));
+    renderWithProviders(<AssistantChat />);
+
+    const user = await typeAndSend("Plan my day");
+    await waitFor(() => expect(screen.getByTestId("message-assistant")).toHaveTextContent("Here is your plan."));
+
+    await user.click(screen.getByRole("radio", { name: "TaskAgent" }));
+
+    expect(screen.queryByTestId("message-assistant")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ask TaskAgent" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Message the assistant"), "Create a task{Enter}");
+    await waitFor(() => expect(mockedApi.chat).toHaveBeenCalledTimes(1));
+    expect(mockedApi.chat.mock.calls[0][0].conversationId).not.toBe("conv-supervisor");
+  });
+
+  it("refreshes task data when a supervisor request fails, since an agent may already have changed tasks", async () => {
+    window.sessionStorage.clear();
+    mockedApi.supervise.mockRejectedValueOnce(new ApiError(504, { title: "AI service error", detail: "The AI service took too long to answer." }));
+    renderWithProviders(
+      <>
+        <VersionProbe />
+        <AssistantChat />
+      </>,
+    );
+    expect(screen.getByTestId("version")).toHaveTextContent("0");
+
+    await typeAndSend("Create a task and plan my day");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("took too long");
+    expect(screen.getByTestId("version")).toHaveTextContent("1");
+  });
+
   it("renders user and assistant messages and shows a loading indicator while waiting", async () => {
     let resolve: (value: ChatResponse) => void = () => {};
     mockedApi.chat.mockReturnValue(new Promise<ChatResponse>((r) => (resolve = r)));
