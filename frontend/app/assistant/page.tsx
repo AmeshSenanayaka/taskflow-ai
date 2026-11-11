@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "AI Assistant" };
 export default function AssistantPage() {
   return (
     <>
-      <PageHeader title="AI Assistant" description="Manage your tasks in plain language. Powered by the TaskAgent (LangChain4j + OpenAI)." />
+      <PageHeader title="AI Assistant" description="Manage your tasks in plain language. Switch between the single TaskAgent and the TaskFlow Supervisor that routes to specialised agents (LangChain4j + OpenAI)." />
       <AssistantChat />
     </>
   );

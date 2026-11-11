@@ -2,6 +2,7 @@ package com.taskflow.ai.tool;
 
 import com.taskflow.ai.exception.ToolExecutionException;
 import com.taskflow.dto.request.CreateTaskRequest;
+import com.taskflow.dto.request.UpdateTaskRequest;
 import com.taskflow.dto.response.PageResponse;
 import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
@@ -79,6 +80,56 @@ public class TaskTools {
                 throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
             }
             return taskService.getById(taskId);
+        });
+    }
+
+    @Tool("""
+        Update an existing task. Only the fields you pass are changed; every other field keeps its current value.
+        Use getTaskById or listTasks first to obtain the task id. Pass an empty string for dueDate to clear it.
+        """)
+    public TaskResponse updateTask(
+            @P("Unique task ID") UUID taskId,
+            @P(value = "New title, or null to keep the current one", required = false) String title,
+            @P(value = "New description, or null to keep the current one", required = false) String description,
+            @P(value = "New priority: LOW, MEDIUM or HIGH, or null to keep the current one", required = false) String priority,
+            @P(value = "New status: TODO, IN_PROGRESS or COMPLETED, or null to keep the current one", required = false) String status,
+            @P(value = "New due date in YYYY-MM-DD format, null to keep the current one, or an empty string to clear it",
+                    required = false) String dueDate
+    ) {
+        return guarded("updateTask", () -> {
+            if (taskId == null) {
+                throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
+            }
+            TaskResponse current = taskService.getById(taskId);
+            String newTitle = title == null || title.isBlank() ? current.title() : title.trim();
+            String newDescription = description == null ? current.description() : description;
+            LocalDate newDueDate = dueDate == null ? current.dueDate()
+                    : dueDate.isBlank() ? null : parseDate(dueDate);
+            UpdateTaskRequest request = new UpdateTaskRequest(
+                    newTitle,
+                    newDescription,
+                    parseEnum(TaskPriority.class, priority, current.priority()),
+                    parseEnum(TaskStatus.class, status, current.status()),
+                    newDueDate
+            );
+            return taskService.update(taskId, request);
+        });
+    }
+
+    @Tool("Change only the status of a task: TODO, IN_PROGRESS or COMPLETED. Marking COMPLETED records the completion time.")
+    public TaskResponse updateTaskStatus(
+            @P("Unique task ID") UUID taskId,
+            @P("New status: TODO, IN_PROGRESS or COMPLETED") String status
+    ) {
+        return guarded("updateTaskStatus", () -> {
+            if (taskId == null) {
+                throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
+            }
+            TaskStatus newStatus = parseEnum(TaskStatus.class, status, null);
+            if (newStatus == null) {
+                throw new ToolExecutionException("Invalid status '" + status + "'. Use TODO, IN_PROGRESS or COMPLETED.");
+            }
+            return taskService.updateStatus(taskId, newStatus);
         });
     }
 
