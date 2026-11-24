@@ -1,17 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Menu, Plus } from "lucide-react";
+import { LogOut, Menu, Plus } from "lucide-react";
 import { Brand } from "@/components/layout/brand";
 import { CurrentDate } from "@/components/layout/current-date";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { useTaskForm, useUserPreferences } from "@/components/providers/app-providers";
+import { useOptionalAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 export function TopBar() {
   const { timezone } = useUserPreferences();
   const { openCreate } = useTaskForm();
+  const auth = useOptionalAuth();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -47,6 +49,17 @@ export function TopBar() {
           <Plus data-icon="inline-start" />
           Add Task
         </Button>
+
+        {auth && (
+          <div className="flex items-center gap-2">
+            <span className="hidden text-sm font-medium md:inline" data-testid="signed-in-user">
+              {auth.user.name ?? auth.user.username}
+            </span>
+            <Button variant="outline" size="icon" onClick={auth.signOut} aria-label="Sign out" title="Sign out">
+              <LogOut />
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

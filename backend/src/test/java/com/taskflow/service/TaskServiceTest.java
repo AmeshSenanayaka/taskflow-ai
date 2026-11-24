@@ -34,6 +34,7 @@ import static org.mockito.Mockito.when;
 class TaskServiceTest {
 
     private static final Instant FIXED_NOW = Instant.parse("2026-11-02T09:30:00Z");
+    private static final UUID OWNER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
 
     @Mock
     private TaskRepository taskRepository;
@@ -50,7 +51,7 @@ class TaskServiceTest {
     void createUsesDefaultsForPriorityAndStatus() {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        TaskResponse response = taskService.create(
+        TaskResponse response = taskService.create(OWNER,
                 new CreateTaskRequest("  Write article  ", "   ", null, null));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
@@ -74,7 +75,7 @@ class TaskServiceTest {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
         LocalDate due = LocalDate.of(2026, 11, 10);
 
-        TaskResponse response = taskService.create(
+        TaskResponse response = taskService.create(OWNER,
                 new CreateTaskRequest("Deploy", "Push to prod", TaskPriority.HIGH, due));
 
         assertThat(response.priority()).isEqualTo(TaskPriority.HIGH);
@@ -86,10 +87,10 @@ class TaskServiceTest {
     void updatesStampUpdatedAtFromTheClockAndKeepCreatedAt() {
         Task task = newTask();
         Instant originallyCreated = task.getCreatedAt();
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
         stubSaveAndFlush();
 
-        TaskResponse response = taskService.updateStatus(task.getId(), TaskStatus.IN_PROGRESS);
+        TaskResponse response = taskService.updateStatus(OWNER, task.getId(), TaskStatus.IN_PROGRESS);
 
         assertThat(response.createdAt()).isEqualTo(originallyCreated);
         assertThat(response.updatedAt()).isEqualTo(FIXED_NOW);
@@ -98,10 +99,10 @@ class TaskServiceTest {
     @Test
     void completingATaskSetsCompletedAtFromTheClock() {
         Task task = newTask();
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
         stubSaveAndFlush();
 
-        TaskResponse response = taskService.updateStatus(task.getId(), TaskStatus.COMPLETED);
+        TaskResponse response = taskService.updateStatus(OWNER, task.getId(), TaskStatus.COMPLETED);
 
         assertThat(response.status()).isEqualTo(TaskStatus.COMPLETED);
         assertThat(response.completedAt()).isEqualTo(FIXED_NOW);
@@ -111,10 +112,10 @@ class TaskServiceTest {
     void reopeningACompletedTaskClearsCompletedAt() {
         Task task = newTask();
         task.changeStatus(TaskStatus.COMPLETED, Instant.parse("2026-11-01T12:00:00Z"));
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
         stubSaveAndFlush();
 
-        TaskResponse response = taskService.updateStatus(task.getId(), TaskStatus.IN_PROGRESS);
+        TaskResponse response = taskService.updateStatus(OWNER, task.getId(), TaskStatus.IN_PROGRESS);
 
         assertThat(response.status()).isEqualTo(TaskStatus.IN_PROGRESS);
         assertThat(response.completedAt()).isNull();
@@ -125,10 +126,10 @@ class TaskServiceTest {
         Task task = newTask();
         Instant originallyCompleted = Instant.parse("2026-11-01T12:00:00Z");
         task.changeStatus(TaskStatus.COMPLETED, originallyCompleted);
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
         stubSaveAndFlush();
 
-        TaskResponse response = taskService.updateStatus(task.getId(), TaskStatus.COMPLETED);
+        TaskResponse response = taskService.updateStatus(OWNER, task.getId(), TaskStatus.COMPLETED);
 
         assertThat(response.completedAt()).isEqualTo(originallyCompleted);
     }
@@ -136,11 +137,11 @@ class TaskServiceTest {
     @Test
     void updateReplacesAllEditableFields() {
         Task task = newTask();
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
         stubSaveAndFlush();
         LocalDate due = LocalDate.of(2026, 12, 1);
 
-        TaskResponse response = taskService.update(task.getId(),
+        TaskResponse response = taskService.update(OWNER, task.getId(),
                 new UpdateTaskRequest("New title", "New description", TaskPriority.LOW, TaskStatus.COMPLETED, due));
 
         assertThat(response.title()).isEqualTo("New title");
@@ -157,9 +158,9 @@ class TaskServiceTest {
     @Test
     void getByIdThrowsForUnknownTask() {
         UUID unknown = UUID.randomUUID();
-        when(taskRepository.findById(unknown)).thenReturn(Optional.empty());
+        when(taskRepository.findByIdAndOwnerId(unknown, OWNER)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> taskService.getById(unknown))
+        assertThatThrownBy(() -> taskService.getById(OWNER, unknown))
                 .isInstanceOf(TaskNotFoundException.class)
                 .hasMessageContaining(unknown.toString());
     }
@@ -167,29 +168,60 @@ class TaskServiceTest {
     @Test
     void updateStatusThrowsForUnknownTask() {
         UUID unknown = UUID.randomUUID();
-        when(taskRepository.findById(unknown)).thenReturn(Optional.empty());
+        when(taskRepository.findByIdAndOwnerId(unknown, OWNER)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> taskService.updateStatus(unknown, TaskStatus.COMPLETED))
+        assertThatThrownBy(() -> taskService.updateStatus(OWNER, unknown, TaskStatus.COMPLETED))
                 .isInstanceOf(TaskNotFoundException.class);
     }
 
     @Test
     void deleteThrowsForUnknownTaskAndDoesNotTouchRepository() {
         UUID unknown = UUID.randomUUID();
-        when(taskRepository.findById(unknown)).thenReturn(Optional.empty());
+        when(taskRepository.findByIdAndOwnerId(unknown, OWNER)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> taskService.delete(unknown)).isInstanceOf(TaskNotFoundException.class);
+        assertThatThrownBy(() -> taskService.delete(OWNER, unknown)).isInstanceOf(TaskNotFoundException.class);
         verify(taskRepository, never()).delete(any(Task.class));
     }
 
     @Test
     void deleteRemovesExistingTask() {
         Task task = newTask();
-        when(taskRepository.findById(task.getId())).thenReturn(Optional.of(task));
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
 
-        taskService.delete(task.getId());
+        taskService.delete(OWNER, task.getId());
 
         verify(taskRepository).delete(task);
+    }
+
+    @Test
+    void createAssignsTheTaskToTheCallerPassedByTheController() {
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        taskService.create(OWNER, new CreateTaskRequest("Write article", null, null, null));
+
+        ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
+        verify(taskRepository).save(captor.capture());
+        assertThat(captor.getValue().getOwnerId()).isEqualTo(OWNER);
+    }
+
+    @Test
+    void anotherUsersTaskIsReportedAsNotFound() {
+        // The repository is asked for (id, caller); a task owned by someone else is simply not returned.
+        UUID someoneElsesTask = UUID.randomUUID();
+        when(taskRepository.findByIdAndOwnerId(someoneElsesTask, OWNER)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> taskService.getById(OWNER, someoneElsesTask))
+                .isInstanceOf(TaskNotFoundException.class);
+        verify(taskRepository, never()).findById(any());
+    }
+
+    @Test
+    void aMissingOwnerIsAProgrammingErrorNotAnUnscopedQuery() {
+        assertThatThrownBy(() -> taskService.list(null, com.taskflow.specification.TaskFilter.none(),
+                com.taskflow.specification.TaskSort.defaultSort(), 0, 10))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> taskService.getById(null, UUID.randomUUID()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     private void stubSaveAndFlush() {
@@ -197,6 +229,6 @@ class TaskServiceTest {
     }
 
     private static Task newTask() {
-        return new Task("Sample", null, TaskPriority.MEDIUM, null, Instant.parse("2026-11-01T08:00:00Z"));
+        return new Task(OWNER, "Sample", null, TaskPriority.MEDIUM, null, Instant.parse("2026-11-01T08:00:00Z"));
     }
 }

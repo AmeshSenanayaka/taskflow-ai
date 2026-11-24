@@ -4,6 +4,8 @@ import com.taskflow.AbstractIntegrationTest;
 import com.taskflow.entity.Task;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.service.UserAccountService;
+import com.taskflow.support.TestUsers;
 import com.taskflow.specification.TaskFilter;
 import com.taskflow.specification.TaskSort;
 import com.taskflow.specification.TaskSpecifications;
@@ -18,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,9 +35,22 @@ class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private UserAccountService userAccounts;
+
+    private UUID owner;
+    private UUID otherUser;
+
     @BeforeEach
     void seed() {
+        owner = userAccounts.resolve(TestUsers.ALICE_SUBJECT, "alice").id();
+        otherUser = userAccounts.resolve(TestUsers.BOB_SUBJECT, "bob").id();
         taskRepository.deleteAll();
+        // Another user's tasks are in the same table and must never show up in the owner's results below.
+        taskRepository.saveAll(List.of(
+                new Task(otherUser, "Bob: Phase 0 notes", "bob's backlog", TaskPriority.HIGH, TODAY, CREATED),
+                new Task(otherUser, "Bob: overdue", null, TaskPriority.LOW, TODAY.minusDays(9), CREATED)
+        ));
         taskRepository.saveAll(List.of(
                 task("Write Phase 0 article", "Medium series", TaskPriority.HIGH, TODAY.minusDays(2)),
                 task("Review pull request", null, TaskPriority.MEDIUM, TODAY),
@@ -48,10 +64,25 @@ class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
     void flywayMigrationsWereApplied() {
         List<String> versions = jdbcTemplate.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertThat(versions).containsExactly("1", "2");
+        assertThat(versions).containsExactly("1", "2", "3");
 
-        Integer preferenceRows = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM user_preferences", Integer.class);
-        assertThat(preferenceRows).isEqualTo(1);
+        // V3 hands the pre-Phase-3 preferences row to the demo user alice.
+        Integer alicePreferences = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM user_preferences WHERE user_id = ?::uuid", Integer.class, TestUsers.ALICE_SUBJECT);
+        assertThat(alicePreferences).isEqualTo(1);
+    }
+
+    @Test
+    void everyQueryIsScopedToTheOwner() {
+        assertThat(find(TaskFilter.none(), TaskSort.defaultSort(), 0, 50).getContent())
+                .extracting(Task::getOwnerId).containsOnly(owner);
+        assertThat(taskRepository.countByOwnerId(owner)).isEqualTo(5);
+        assertThat(taskRepository.countByOwnerId(otherUser)).isEqualTo(2);
+
+        Task bobsTask = taskRepository.findAll().stream()
+                .filter(task -> task.getOwnerId().equals(otherUser)).findFirst().orElseThrow();
+        assertThat(taskRepository.findByIdAndOwnerId(bobsTask.getId(), owner)).isEmpty();
+        assertThat(taskRepository.findByIdAndOwnerId(bobsTask.getId(), otherUser)).isPresent();
     }
 
     @Test
@@ -130,22 +161,26 @@ class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void dashboardCountQueriesRespectStatusAndDate() {
-        assertThat(taskRepository.countOverdue(TODAY)).isEqualTo(1); // completed overdue task is excluded
-        assertThat(taskRepository.countDueToday(TODAY)).isEqualTo(1);
-        assertThat(taskRepository.countByStatus(TaskStatus.COMPLETED)).isEqualTo(1);
+        assertThat(taskRepository.countOverdue(owner, TODAY)).isEqualTo(1); // completed overdue task is excluded
+        assertThat(taskRepository.countDueToday(owner, TODAY)).isEqualTo(1);
+        assertThat(taskRepository.countByOwnerIdAndStatus(owner, TaskStatus.COMPLETED)).isEqualTo(1);
+        // bob's overdue and due-today tasks are not counted for alice
+        assertThat(taskRepository.countOverdue(otherUser, TODAY)).isEqualTo(1);
     }
 
     private Page<Task> find(TaskFilter filter, TaskSort sort, int page, int size) {
-        Specification<Task> spec = TaskSpecifications.withFilter(filter).and(TaskSpecifications.sortedBy(sort));
+        Specification<Task> spec = TaskSpecifications.ownedBy(owner)
+                .and(TaskSpecifications.withFilter(filter))
+                .and(TaskSpecifications.sortedBy(sort));
         return taskRepository.findAll(spec, PageRequest.of(page, size));
     }
 
-    private static Task task(String title, String description, TaskPriority priority, LocalDate dueDate) {
-        return new Task(title, description, priority, dueDate, CREATED);
+    private Task task(String title, String description, TaskPriority priority, LocalDate dueDate) {
+        return new Task(owner, title, description, priority, dueDate, CREATED);
     }
 
-    private static Task completed(String title, TaskPriority priority, LocalDate dueDate) {
-        Task task = new Task(title, null, priority, dueDate, CREATED);
+    private Task completed(String title, TaskPriority priority, LocalDate dueDate) {
+        Task task = new Task(owner, title, null, priority, dueDate, CREATED);
         task.changeStatus(TaskStatus.COMPLETED, Instant.parse("2026-11-01T10:00:00Z"));
         return task;
     }

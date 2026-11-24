@@ -1,10 +1,13 @@
 package com.taskflow.controller;
 import com.taskflow.ai.agent.TaskAgent;
+import com.taskflow.ai.conversation.ConversationRef;
+import com.taskflow.ai.conversation.ConversationService;
 import com.taskflow.ai.dto.AgentDescriptor;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.exception.AiServiceException;
 import com.taskflow.ai.service.MultiAgentService;
 import com.taskflow.config.OpenApiConfig;
+import com.taskflow.security.CurrentUserProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -13,6 +16,7 @@ import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +27,10 @@ import java.util.List;
  * HTTP surface of the AI assistant. It only validates input and delegates to the Phase 1
  * {@link com.taskflow.ai.agent.TaskAgent} ({@code /chat}) or the Phase 2 {@link MultiAgentService} ({@code /supervisor/chat});
  * no LLM or tool logic lives here.
+ * <p>
+ * Phase 3.0: conversation ids are issued by the server ({@code POST /api/ai/conversations}) and every chat request
+ * is checked against the authenticated caller before any agent or chat memory is touched. The agents receive an
+ * owner-qualified memory key ({@link ConversationRef#memoryKey()}), never the raw id from the request.
  */
 @Slf4j
 @Validated
@@ -34,6 +42,8 @@ public class AiChatController {
 
     private final TaskAgent taskAgentService;
     private final MultiAgentService multiAgentService;
+    private final ConversationService conversations;
+    private final CurrentUserProvider currentUser;
 
     @Value("${langchain4j.open-ai.chat-model.model-name:unknown}")
     private String modelName;
@@ -44,15 +54,26 @@ public class AiChatController {
         return new AiStatus(true, modelName, null);
     }
 
+    @Operation(summary = "Start a new conversation",
+            description = "Returns a server-issued conversation id owned by the caller. Send it with every chat message.")
+    @PostMapping("/conversations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ConversationResponse createConversation() {
+        ConversationRef conversation = conversations.create(currentUser.userId());
+        return new ConversationResponse(conversation.id().toString());
+    }
+
     @Operation(summary = "Send a message to the single TaskAgent (Phase 1)")
     @PostMapping("/chat")
     public ResponseEntity<ChatResponse> chat(
             @Valid @RequestBody ChatRequest request
     ) {
+        // Ownership first: an unknown or foreign conversation is a 404 and never reaches the model.
+        ConversationRef conversation = conversations.requireOwned(currentUser.userId(), request.conversationId());
         String response;
         try {
             response = taskAgentService.chat(
-                    request.conversationId(),
+                    conversation.memoryKey(),
                     request.message()
             );
         } catch (RuntimeException ex) {
@@ -66,7 +87,7 @@ public class AiChatController {
 
         return ResponseEntity.ok(
                 new ChatResponse(
-                        request.conversationId(),
+                        conversation.id().toString(),
                         response
                 )
         );
@@ -78,7 +99,8 @@ public class AiChatController {
                     + "agents and tools it used.")
     @PostMapping("/supervisor/chat")
     public SupervisorChatResponse supervise(@Valid @RequestBody ChatRequest request) {
-        return multiAgentService.chat(request.conversationId(), request.message());
+        ConversationRef conversation = conversations.requireOwned(currentUser.userId(), request.conversationId());
+        return multiAgentService.chat(conversation, request.message());
     }
 
     @Operation(summary = "List the specialised agents available behind the supervisor")
@@ -95,6 +117,8 @@ public class AiChatController {
             @Size(max = 4000, message = "Message is too long")
             String message
     ) {}
+
+    public record ConversationResponse(String conversationId) {}
 
     public record ChatResponse(
             String conversationId,

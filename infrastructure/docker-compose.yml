@@ -17,5 +17,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # Phase 3.0: identity provider. Imports the "taskflow" realm (clients + demo users alice/bob) on first start.
+  # Development mode only: in-memory H2 store, HTTP, bootstrap admin. Not a production setup.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4
+    container_name: taskflow-keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Fixes the token issuer to the URL the browser and the backend both use.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+    ports:
+      - "${KEYCLOAK_PORT:-8180}:8080"
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+
 volumes:
   taskflow_pgdata:

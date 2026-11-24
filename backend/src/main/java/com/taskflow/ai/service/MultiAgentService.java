@@ -5,6 +5,7 @@ import com.taskflow.ai.agent.PriorityAgent;
 import com.taskflow.ai.agent.SummaryAgent;
 import com.taskflow.ai.agent.TaskAgent;
 import com.taskflow.ai.agent.TaskFlowSupervisor;
+import com.taskflow.ai.conversation.ConversationRef;
 import com.taskflow.ai.dto.AgentDescriptor;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.exception.AiServiceException;
@@ -56,9 +57,15 @@ public class MultiAgentService {
         this.supervisor = supervisor;
     }
 
-    public SupervisorChatResponse chat(String conversationId, String message) {
+    /**
+     * @param conversation a conversation already verified to belong to the caller (see {@code ConversationService})
+     */
+    public SupervisorChatResponse chat(ConversationRef conversation, String message) {
         String requestId = UUID.randomUUID().toString();
-        ConversationLock entry = conversationLocks.compute(conversationId, (id, existing) -> {
+        String conversationId = conversation.id().toString();
+        // Locks and chat memory are keyed by the owner-qualified key, never by the bare id from the request.
+        String memoryKey = conversation.memoryKey();
+        ConversationLock entry = conversationLocks.compute(memoryKey, (id, existing) -> {
             ConversationLock current = existing == null ? new ConversationLock() : existing;
             current.users++;
             return current;
@@ -67,21 +74,21 @@ public class MultiAgentService {
         try {
             MDC.put("requestId", requestId);
             MDC.put("conversationId", conversationId);
-            return run(conversationId, message, requestId);
+            return run(conversationId, memoryKey, message, requestId);
         } finally {
             MDC.remove("requestId");
             MDC.remove("conversationId");
             entry.lock.unlock();
-            conversationLocks.computeIfPresent(conversationId, (id, current) -> --current.users == 0 ? null : current);
+            conversationLocks.computeIfPresent(memoryKey, (id, current) -> --current.users == 0 ? null : current);
         }
     }
 
-    private SupervisorChatResponse run(String conversationId, String message, String requestId) {
+    private SupervisorChatResponse run(String conversationId, String memoryKey, String message, String requestId) {
         long started = System.nanoTime();
         AgentRunRecorder.Run run = AgentRunRecorder.open();
         try {
             log.info("supervisor.request chars={}", message.length());
-            String answer = supervisor.chat(conversationId, message);
+            String answer = supervisor.chat(memoryKey, message);
             if (answer == null || answer.isBlank()) {
                 log.warn("supervisor.empty-answer agents={}", run.agents());
                 answer = FALLBACK_MESSAGE;

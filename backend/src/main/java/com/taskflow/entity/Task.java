@@ -28,6 +28,11 @@ public class Task {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    /** The user who owns the task. Set once at creation; every query and update is scoped by it. */
+    @Setter(AccessLevel.NONE)
+    @Column(name = "owner_id", nullable = false, updatable = false)
+    private UUID ownerId;
+
     @Column(name = "title", nullable = false, length = 150)
     private String title;
 
@@ -55,12 +60,14 @@ public class Task {
     private Instant completedAt;
 
     /**
+     * @param ownerId the id of the user who owns the task (from the authenticated caller, never from input).
      * @param dueDate the calendar day the task is due, or null. It is a {@link LocalDate} on purpose: a deadline
      *                belongs to a day, not an instant, so it never shifts when the user's timezone changes.
      * @param now     the creation instant, supplied by the caller's {@link java.time.Clock} so tests are repeatable.
      */
-    public Task(String title, String description, TaskPriority priority, LocalDate dueDate, Instant now) {
+    public Task(UUID ownerId, String title, String description, TaskPriority priority, LocalDate dueDate, Instant now) {
         this.id = UUID.randomUUID();
+        this.ownerId = ownerId;
         this.title = title;
         this.description = description;
         this.priority = priority;

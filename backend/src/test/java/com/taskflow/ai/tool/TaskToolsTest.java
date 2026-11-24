@@ -5,17 +5,21 @@ import com.taskflow.dto.request.CreateTaskRequest;
 import com.taskflow.dto.request.UpdateTaskRequest;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
 import dev.langchain4j.agent.tool.Tool;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -27,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,13 +45,23 @@ class TaskToolsTest {
     @Mock
     private PreferencesService preferencesService;
 
+    @Mock
+    private CurrentUserProvider currentUser;
+
     @InjectMocks
     private TaskTools taskTools;
 
+    private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
+
+    @BeforeEach
+    void signIn() {
+        lenient().when(currentUser.userId()).thenReturn(USER);
+    }
+
     @Test
     void getTodayReturnsTheSharedUserDateAndTimezone() {
-        when(preferencesService.today()).thenReturn(LocalDate.of(2026, 11, 3));
-        when(preferencesService.getZoneId()).thenReturn(ZoneId.of("Asia/Colombo"));
+        when(preferencesService.today(USER)).thenReturn(LocalDate.of(2026, 11, 3));
+        when(preferencesService.getZoneId(USER)).thenReturn(ZoneId.of("Asia/Colombo"));
 
         TaskTools.TodayResponse today = taskTools.getToday();
 
@@ -59,7 +74,7 @@ class TaskToolsTest {
         taskTools.createTask("Deploy", null, "HIGH", "2026-11-15");
 
         ArgumentCaptor<CreateTaskRequest> captor = ArgumentCaptor.forClass(CreateTaskRequest.class);
-        verify(taskService).create(captor.capture());
+        verify(taskService).create(eq(USER), captor.capture());
         assertThat(captor.getValue().dueDate()).isEqualTo(LocalDate.of(2026, 11, 15));
     }
 
@@ -76,8 +91,8 @@ class TaskToolsTest {
         UpdateTaskRequest current = new UpdateTaskRequest("Write the article", "Draft", TaskPriority.MEDIUM,
                 TaskStatus.TODO, LocalDate.of(2026, 11, 20));
         AtomicReference<UpdateTaskRequest> stored = new AtomicReference<>();
-        when(taskService.patch(eq(id), any())).thenAnswer(invocation -> {
-            UnaryOperator<UpdateTaskRequest> change = invocation.getArgument(1);
+        when(taskService.patch(eq(USER), eq(id), any())).thenAnswer(invocation -> {
+            UnaryOperator<UpdateTaskRequest> change = invocation.getArgument(2);
             stored.set(change.apply(current));
             return null;
         });
@@ -119,5 +134,36 @@ class TaskToolsTest {
                 .map(Method::getName)
                 .filter(name -> !name.startsWith("get") && !name.startsWith("list")))
                 .isEmpty();
+    }
+    @Test
+    void toolsActForTheAuthenticatedUserNeverForAnIdFromTheModel() {
+        UUID taskId = UUID.randomUUID();
+
+        taskTools.getTaskById(taskId);
+        taskTools.updateTaskStatus(taskId, "COMPLETED");
+
+        verify(taskService).getById(USER, taskId);
+        verify(taskService).updateStatus(USER, taskId, TaskStatus.COMPLETED);
+    }
+
+    @Test
+    void noToolLetsTheModelChooseTheUser() {
+        // The owner comes from CurrentUserProvider only; a tool parameter for it would let a prompt injection pick it.
+        assertThat(Arrays.stream(TaskTools.class.getDeclaredMethods())
+                .filter(method -> method.isAnnotationPresent(Tool.class))
+                .flatMap(method -> Arrays.stream(method.getParameters()))
+                .map(Parameter::getName)
+                .map(String::toLowerCase))
+                .noneMatch(name -> name.contains("user") || name.contains("owner"));
+    }
+
+    @Test
+    void withoutAnAuthenticatedUserNoDataIsTouched() {
+        when(currentUser.userId()).thenThrow(new AuthenticationCredentialsNotFoundException("no user"));
+
+        assertThatThrownBy(() -> taskTools.getTaskById(UUID.randomUUID()))
+                .isInstanceOf(ToolExecutionException.class)
+                .hasMessageContaining("no signed-in user");
+        verifyNoInteractions(taskService);
     }
 }

@@ -6,6 +6,7 @@ import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.ai.orchestration.TaskFlowAgentFactory;
 import com.taskflow.ai.tool.TaskQueryTools;
 import com.taskflow.ai.tool.TaskTools;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
@@ -46,8 +47,10 @@ public class MultiAgentConfig {
                                                      ChatMemoryProvider chatMemoryProvider,
                                                      AgentContextProvider contextProvider,
                                                      SupervisorProperties properties,
-                                                     AgentRunRecorder recorder) {
-        TaskQueryTools taskQueryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock);
+                                                     AgentRunRecorder recorder,
+                                                     CurrentUserProvider currentUser) {
+        TaskQueryTools taskQueryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock,
+                currentUser);
         return new TaskFlowAgentFactory(chatModel, taskTools, taskQueryTools, chatMemoryProvider,
                 contextProvider::render, properties, recorder);
     }

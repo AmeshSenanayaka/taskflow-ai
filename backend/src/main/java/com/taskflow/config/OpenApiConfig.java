@@ -1,8 +1,11 @@
 package com.taskflow.config;
 
+import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import io.swagger.v3.oas.models.tags.Tag;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,13 +19,14 @@ public class OpenApiConfig {
     public static final String TAG_DASHBOARD = "Dashboard";
     public static final String TAG_PREFERENCES = "Preferences";
     public static final String TAG_AI = "AI Assistant";
+    public static final String SECURITY_SCHEME = "bearerAuth";
 
     @Bean
     public OpenAPI taskFlowOpenApi() {
         return new OpenAPI()
                 .info(new Info()
                         .title("TaskFlow AI API")
-                        .version("0.3.0 (Phase 2)")
+                        .version("0.4.0 (Phase 3.0)")
                         .description("""
                                 REST API for TaskFlow AI, a personal task manager.
 
@@ -33,13 +37,21 @@ public class OpenApiConfig {
                                 Phase 2 adds the multi-agent system (POST /api/ai/supervisor/chat): a TaskFlowSupervisor \
                                 that routes each request to specialised agents (TaskAgent, PriorityAgent, PlanningAgent, \
                                 SummaryAgent) and reports which agents and tools it used. \
+                                Phase 3.0 adds identity: every /api request needs a Keycloak access token \
+                                (Authorize button: paste a token, see docs/phase-3.0), and all data is scoped to its user. \
                                 Errors use RFC 9457 Problem Details (application/problem+json).
                                 """)
                         .license(new License().name("MIT")))
+                .components(new Components().addSecuritySchemes(SECURITY_SCHEME, new SecurityScheme()
+                        .type(SecurityScheme.Type.HTTP)
+                        .scheme("bearer")
+                        .bearerFormat("JWT")
+                        .description("Keycloak access token for the taskflow realm")))
+                .addSecurityItem(new SecurityRequirement().addList(SECURITY_SCHEME))
                 .tags(List.of(
                         new Tag().name(TAG_TASKS).description("Create, read, update, delete and list tasks"),
                         new Tag().name(TAG_DASHBOARD).description("Aggregated statistics for the dashboard"),
-                        new Tag().name(TAG_PREFERENCES).description("Single-user preferences such as timezone"),
+                        new Tag().name(TAG_PREFERENCES).description("The caller's preferences such as timezone"),
                         new Tag().name(TAG_AI).description("Natural-language task management through the TaskAgent "
                                 + "(Phase 1) and the TaskFlowSupervisor multi-agent system (Phase 2)")
                 ));

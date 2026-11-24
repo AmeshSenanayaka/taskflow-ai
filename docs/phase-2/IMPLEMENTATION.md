@@ -99,8 +99,9 @@ Package layout under `com.taskflow.ai` (Phase 1 packages unchanged):
 ## 3. Key implementation decisions
 
 1. **LangChain4j's supervisor, not a hand-written router.** `AgenticServices.supervisorBuilder(TaskFlowSupervisor.class)`
-   gives the planner loop, the agent cards, the "done" protocol, memory strategies and invocation limits. Phase 3 will
-   compare this LLM router with cheaper alternatives, so the baseline should be the library's reference behaviour.
+   gives the planner loop, the agent cards, the "done" protocol, memory strategies and invocation limits. Phase 3
+   measures and governs this system rather than replacing the router, so the baseline should be the library's
+   reference behaviour.
 2. **Agent cards are the routing contract.** The planner only sees `@Agent(name, description)` and the argument list.
    The descriptions therefore say what the agent is *for* and what it does *not* do ("it only recommends; it does not
    change tasks"). `supervisor-context.txt` adds the routing policy: one agent per concern, call each at most once,

@@ -12,7 +12,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.UUID;
 
+/** Per-user preferences (Phase 3.0). Every method takes the user id supplied by the authenticated caller. */
 @Service
 @Transactional(readOnly = true)
 public class PreferencesService {
@@ -29,15 +31,15 @@ public class PreferencesService {
         this.clock = clock;
     }
 
-    public PreferencesResponse get() {
-        return preferencesMapper.toResponse(load());
+    public PreferencesResponse get(UUID userId) {
+        return preferencesMapper.toResponse(load(userId));
     }
 
     /**
      * The timezone used for every "today"-based calculation (dashboard, overdue, due today).
      */
-    public ZoneId getZoneId() {
-        return ZoneId.of(load().getTimezone());
+    public ZoneId getZoneId(UUID userId) {
+        return ZoneId.of(load(userId).getTimezone());
     }
 
     /**
@@ -48,23 +50,22 @@ public class PreferencesService {
      * timezone never moves a stored due date; it only changes which calendar day counts as "today", and
      * therefore which tasks are currently overdue or due today. The server's own timezone is irrelevant.
      */
-    public LocalDate today() {
-        return LocalDate.now(clock.withZone(getZoneId()));
+    public LocalDate today(UUID userId) {
+        return LocalDate.now(clock.withZone(getZoneId(userId)));
     }
 
     @Transactional
-    public PreferencesResponse update(UpdatePreferencesRequest request) {
-        UserPreferences preferences = load();
+    public PreferencesResponse update(UUID userId, UpdatePreferencesRequest request) {
+        UserPreferences preferences = load(userId);
         preferences.setTimezone(request.timezone());
         preferences.setDailyAvailableMinutes(request.dailyAvailableMinutes());
         preferences.setUpdatedAt(Instant.now(clock));
         return preferencesMapper.toResponse(preferencesRepository.saveAndFlush(preferences));
     }
 
-    private UserPreferences load() {
-        // The row is seeded by Flyway migration V2, so it always exists.
-        return preferencesRepository.findById(UserPreferences.SINGLETON_ID)
-                .orElseThrow(() -> new IllegalStateException(
-                        "user_preferences row is missing; run the Flyway migrations"));
+    private UserPreferences load(UUID userId) {
+        // The row is created together with the user (UserAccountService), so it always exists for a real caller.
+        return preferencesRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("Preferences are missing for user " + userId));
     }
 }

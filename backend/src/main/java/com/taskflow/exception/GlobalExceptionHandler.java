@@ -1,6 +1,7 @@
 package com.taskflow.exception;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.taskflow.ai.conversation.ConversationNotFoundException;
 import com.taskflow.ai.exception.AiServiceException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +11,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -34,6 +37,32 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleTaskNotFound(TaskNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Task not found");
+        return problem;
+    }
+
+    @ExceptionHandler(ConversationNotFoundException.class)
+    public ProblemDetail handleConversationNotFound(ConversationNotFoundException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+        problem.setTitle("Conversation not found");
+        return problem;
+    }
+
+    /**
+     * Requests without a valid token are rejected by the security filter before they reach a controller.
+     * This covers the rare case where the identity is missing inside the application (fail closed, 401).
+     */
+    @ExceptionHandler(AuthenticationException.class)
+    public ProblemDetail handleAuthentication(AuthenticationException ex) {
+        log.warn("Request without a usable identity: {}", ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, "Authentication required");
+        problem.setTitle("Unauthorized");
+        return problem;
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ProblemDetail handleAccessDenied(AccessDeniedException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Access denied");
+        problem.setTitle("Forbidden");
         return problem;
     }
 

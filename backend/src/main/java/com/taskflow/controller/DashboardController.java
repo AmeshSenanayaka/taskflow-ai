@@ -2,6 +2,7 @@ package com.taskflow.controller;
 
 import com.taskflow.config.OpenApiConfig;
 import com.taskflow.dto.response.DashboardStatsResponse;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -16,9 +17,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class DashboardController {
 
     private final DashboardService dashboardService;
+    private final CurrentUserProvider currentUser;
 
-    public DashboardController(DashboardService dashboardService) {
+    public DashboardController(DashboardService dashboardService, CurrentUserProvider currentUser) {
         this.dashboardService = dashboardService;
+        this.currentUser = currentUser;
     }
 
     @GetMapping("/stats")
@@ -26,6 +29,6 @@ public class DashboardController {
             description = "Counts by status plus overdue and due-today counts, computed in the user's configured timezone.")
     @ApiResponse(responseCode = "200", description = "Statistics")
     public DashboardStatsResponse getStats() {
-        return dashboardService.getStats();
+        return dashboardService.getStats(currentUser.userId());
     }
 }

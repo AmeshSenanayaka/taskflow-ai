@@ -6,6 +6,7 @@ import com.taskflow.dto.response.PreferencesResponse;
 import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,18 +47,24 @@ class TaskQueryToolsTest {
     private DashboardService dashboardService;
     @Mock
     private PreferencesService preferencesService;
+    @Mock
+    private CurrentUserProvider currentUser;
+
+    private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
 
     private TaskQueryTools tools;
 
     @BeforeEach
     void setUp() {
-        tools = new TaskQueryTools(taskService, dashboardService, preferencesService, Clock.fixed(NOW, ZoneOffset.UTC));
+        lenient().when(currentUser.userId()).thenReturn(USER);
+        tools = new TaskQueryTools(taskService, dashboardService, preferencesService, Clock.fixed(NOW, ZoneOffset.UTC),
+                currentUser);
     }
 
     @Test
     void planningContextUsesTheUsersTimezoneAndPreferences() {
-        when(preferencesService.getZoneId()).thenReturn(ZoneId.of("Asia/Colombo"));
-        when(preferencesService.get()).thenReturn(new PreferencesResponse("Asia/Colombo", 360, NOW));
+        when(preferencesService.getZoneId(USER)).thenReturn(ZoneId.of("Asia/Colombo"));
+        when(preferencesService.get(USER)).thenReturn(new PreferencesResponse("Asia/Colombo", 360, NOW));
 
         TaskQueryTools.PlanningContext context = tools.getPlanningContext();
 
@@ -70,7 +78,7 @@ class TaskQueryToolsTest {
     void findTasksMapsFiltersSortAndLimitAndReportsTruncation() {
         TaskResponse task = new TaskResponse(UUID.randomUUID(), "A", null, TaskPriority.HIGH, TaskStatus.TODO,
                 LocalDate.parse("2026-11-10"), NOW, NOW, null);
-        when(taskService.list(any(), any(), eq(0), eq(5)))
+        when(taskService.list(eq(USER), any(), any(), eq(0), eq(5)))
                 .thenReturn(new PageResponse<>(List.of(task), 0, 5, 12, 3, true, false));
 
         TaskQueryTools.TaskSearchResult result = tools.findTasks(
@@ -82,7 +90,7 @@ class TaskQueryToolsTest {
         assertThat(result.truncated()).isTrue();
         ArgumentCaptor<TaskFilter> filter = ArgumentCaptor.forClass(TaskFilter.class);
         ArgumentCaptor<TaskSort> sort = ArgumentCaptor.forClass(TaskSort.class);
-        verify(taskService).list(filter.capture(), sort.capture(), eq(0), eq(5));
+        verify(taskService).list(eq(USER), filter.capture(), sort.capture(), eq(0), eq(5));
         assertThat(filter.getValue()).isEqualTo(new TaskFilter(List.of(TaskStatus.TODO, TaskStatus.IN_PROGRESS),
                 TaskPriority.HIGH, null, LocalDate.parse("2026-11-01"), LocalDate.parse("2026-11-30"), "arch"));
         assertThat(sort.getValue()).isEqualTo(new TaskSort(TaskSort.Field.PRIORITY, TaskSort.Direction.DESC));
@@ -90,14 +98,14 @@ class TaskQueryToolsTest {
 
     @Test
     void findTasksDefaultsToDueDateAscendingAndClampsTheLimit() {
-        when(taskService.list(any(), any(), eq(0), eq(50)))
+        when(taskService.list(eq(USER), any(), any(), eq(0), eq(50)))
                 .thenReturn(new PageResponse<>(List.of(), 0, 50, 0, 0, true, true));
 
         TaskQueryTools.TaskSearchResult result = tools.findTasks(null, null, null, null, null, null, null, 500);
 
         assertThat(result.tasks()).isEmpty();
         assertThat(result.truncated()).isFalse();
-        verify(taskService).list(eq(TaskFilter.none()), eq(new TaskSort(TaskSort.Field.DUE_DATE, TaskSort.Direction.ASC)),
+        verify(taskService).list(eq(USER), eq(TaskFilter.none()), eq(new TaskSort(TaskSort.Field.DUE_DATE, TaskSort.Direction.ASC)),
                 eq(0), eq(50));
     }
 
@@ -111,7 +119,7 @@ class TaskQueryToolsTest {
 
     @Test
     void unexpectedFailuresAreHiddenBehindAGenericMessage() {
-        when(dashboardService.getStats()).thenThrow(new IllegalStateException("connection to db-host:5432 refused"));
+        when(dashboardService.getStats(USER)).thenThrow(new IllegalStateException("connection to db-host:5432 refused"));
 
         assertThatThrownBy(tools::getTaskStatistics)
                 .isInstanceOf(ToolExecutionException.class)

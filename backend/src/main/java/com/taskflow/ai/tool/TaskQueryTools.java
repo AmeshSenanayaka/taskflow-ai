@@ -7,6 +7,7 @@ import com.taskflow.dto.response.PreferencesResponse;
 import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
@@ -15,6 +16,7 @@ import com.taskflow.specification.TaskSort;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.AuthenticationException;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
@@ -24,6 +26,7 @@ import java.time.format.DateTimeParseException;
 import java.time.format.TextStyle;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
@@ -35,6 +38,8 @@ import java.util.function.Supplier;
  * Deliberately not a Spring bean: the LangChain4j starter gives every bean with {@code @Tool} methods to each
  * {@code @AiService}, which would hand these tools to the Phase 1 {@code TaskAgent} as well (duplicating
  * {@code listTasks} and {@code getToday}). {@code MultiAgentConfig} creates the instance for the supervisor.
+ * <p>
+ * Phase 3.0: every query is scoped to the authenticated caller from {@link CurrentUserProvider}; no tool takes a user id.
  */
 @Slf4j
 public class TaskQueryTools {
@@ -45,15 +50,18 @@ public class TaskQueryTools {
     private final DashboardService dashboardService;
     private final PreferencesService preferencesService;
     private final Clock clock;
+    private final CurrentUserProvider currentUser;
 
     public TaskQueryTools(TaskService taskService,
                           DashboardService dashboardService,
                           PreferencesService preferencesService,
-                          Clock clock) {
+                          Clock clock,
+                          CurrentUserProvider currentUser) {
         this.taskService = taskService;
         this.dashboardService = dashboardService;
         this.preferencesService = preferencesService;
         this.clock = clock;
+        this.currentUser = currentUser;
     }
 
     /** What every analytical agent needs before reasoning about "today", "overdue" or "how much fits in a day". */
@@ -72,8 +80,9 @@ public class TaskQueryTools {
             """)
     public PlanningContext getPlanningContext() {
         return guarded("getPlanningContext", () -> {
-            PreferencesResponse preferences = preferencesService.get();
-            ZoneId zone = preferencesService.getZoneId();
+            UUID userId = currentUser.userId();
+            PreferencesResponse preferences = preferencesService.get(userId);
+            ZoneId zone = preferencesService.getZoneId(userId);
             LocalDate today = LocalDate.now(clock.withZone(zone));
             DayOfWeek dayOfWeek = today.getDayOfWeek();
             return new PlanningContext(
@@ -87,7 +96,7 @@ public class TaskQueryTools {
 
     @Tool("Returns task counts: total, pending (TODO), inProgress, completed, overdue and dueToday")
     public DashboardStatsResponse getTaskStatistics() {
-        return guarded("getTaskStatistics", dashboardService::getStats);
+        return guarded("getTaskStatistics", () -> dashboardService.getStats(currentUser.userId()));
     }
 
     @Tool("""
@@ -126,7 +135,7 @@ public class TaskQueryTools {
                     parseEnum(TaskSort.Field.class, sortBy, TaskSort.Field.DUE_DATE),
                     parseEnum(TaskSort.Direction.class, direction, TaskSort.Direction.ASC));
             int size = limit == null ? 20 : Math.clamp(limit, 1, MAX_RESULTS);
-            PageResponse<TaskResponse> page = taskService.list(filter, sort, 0, size);
+            PageResponse<TaskResponse> page = taskService.list(currentUser.userId(), filter, sort, 0, size);
             return new TaskSearchResult(page.content(), page.totalElements(), page.totalElements() > page.content().size());
         });
     }
@@ -164,6 +173,11 @@ public class TaskQueryTools {
         } catch (ToolExecutionException ex) {
             log.info("Tool {} rejected the request: {}", toolName, ex.getMessage());
             throw ex;
+        } catch (AuthenticationException ex) {
+            // Fail closed: without a caller there is no owner to scope the data to, so nothing is read or written.
+            log.error("Tool {} ran without an authenticated user", toolName, ex);
+            throw new ToolExecutionException("This request has no signed-in user, so no task data can be accessed. "
+                    + "Tell the user to sign in again.", ex);
         } catch (IllegalArgumentException ex) {
             log.info("Tool {} received a bad argument: {}", toolName, ex.getMessage());
             throw new ToolExecutionException("Invalid argument: " + ex.getMessage(), ex);

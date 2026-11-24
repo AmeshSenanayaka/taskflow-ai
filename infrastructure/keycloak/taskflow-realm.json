@@ -1,0 +1,90 @@
+{
+  "realm": "taskflow",
+  "displayName": "TaskFlow AI",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "clients": [
+    {
+      "clientId": "taskflow-web",
+      "name": "TaskFlow web app",
+      "description": "Next.js single-page client: Authorization Code flow with PKCE, no client secret.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3000/*"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "taskflow-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "taskflow-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "taskflow-dev-cli",
+      "name": "TaskFlow developer CLI (development only)",
+      "description": "Password grant for curl and Swagger during local development. Never enable in production.",
+      "enabled": true,
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "taskflow-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "taskflow-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "id": "5f2b8c1e-3d4a-4e6f-8a9b-1c2d3e4f5a61",
+      "username": "alice",
+      "email": "alice@taskflow.local",
+      "firstName": "Alice",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "alice", "temporary": false }]
+    },
+    {
+      "id": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c62",
+      "username": "bob",
+      "email": "bob@taskflow.local",
+      "firstName": "Bob",
+      "lastName": "Demo",
+      "enabled": true,
+      "emailVerified": true,
+      "credentials": [{ "type": "password", "value": "bob", "temporary": false }]
+    }
+  ]
+}
