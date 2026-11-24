@@ -129,6 +129,20 @@ public class ScenarioRunner {
                     agents, tools, llmCalls, tokens, elapsedMs(started), responses);
         } finally {
             SecurityContextHolder.clearContext();
+            restoreDefaultPreferences();
+        }
+    }
+
+    /**
+     * Scenarios change both demo users' timezone and daily minutes (F01 uses 180). Other test classes share the same
+     * database and expect the defaults, so every run puts them back, whatever its outcome.
+     */
+    private void restoreDefaultPreferences() {
+        Scenario.Context defaults = Scenario.Context.DEFAULT;
+        for (String subject : List.of(TestUsers.ALICE_SUBJECT, TestUsers.BOB_SUBJECT)) {
+            String username = TestUsers.ALICE_SUBJECT.equals(subject) ? "alice" : "bob";
+            preferences.update(userAccounts.resolve(subject, username).id(),
+                    new UpdatePreferencesRequest(defaults.timezone(), defaults.dailyAvailableMinutes()));
         }
     }
 
