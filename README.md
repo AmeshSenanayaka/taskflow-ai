@@ -1,10 +1,10 @@
-# TaskFlow AI — Phase 3.1A
+# TaskFlow AI — Phase 3.0
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
-**AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system**
-in which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`, `PlanningAgent` or
-`SummaryAgent` (Phase 2), and, new in Phase 3.1A, an **evaluation harness** that measures that system with a
-version-controlled scenario dataset, a scripted regression suite and an opt-in live-model baseline.
+**AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system** in
+which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`, `PlanningAgent` or `SummaryAgent`
+(Phase 2) and, new in Phase 3.0, **Keycloak sign-in with per-user data**: every task, preference and AI conversation
+belongs to the authenticated user, and the AI tools always act for that user.
 
 This repository accompanies the Medium article series
 **"Building Agentic AI Applications with Java: From Spring Boot to Multi-Agent Systems Using LangChain4j"**.
@@ -14,8 +14,8 @@ This repository accompanies the Medium article series
 | Phase 0 | Traditional full-stack task manager | ✅ Implemented |
 | Phase 1 | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` | ✅ Implemented |
 | Phase 2 | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | ✅ Implemented |
-| **Phase 3.1A** | Evaluation harness: scenario dataset, scripted regression suite, opt-in live-model baseline, execution traces, reproducible reports (this repository state) | ✅ Implemented |
-| Phase 3.1B–3.7 | Reliable and governed agentic AI: quality rubrics and LLM judge, identity and authorization, guardrails, shared state and persistent memory, Critic Agent, Governor, observability | Planned |
+| **Phase 3.0** | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user (this repository state) | ✅ Implemented |
+| Phase 3.1–3.5 | Reliable and governed agentic AI: evals, rules, guardrails, isolated persistent memory, runtime AI governance | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -26,7 +26,7 @@ This repository accompanies the Medium article series
 
 ## 1. Project overview
 
-TaskFlow AI lets a single user organise daily tasks, manage priorities, track deadlines and monitor progress through:
+TaskFlow AI lets each signed-in user organise daily tasks, manage priorities, track deadlines and monitor progress through:
 
 - a responsive **Next.js dashboard** (sidebar navigation, statistics cards, filterable/sortable/paginated task list, create/edit drawer, settings page),
 - a documented **REST API** (Swagger UI) backed by PostgreSQL, and
@@ -34,8 +34,9 @@ TaskFlow AI lets a single user organise daily tasks, manage priorities, track de
   since Phase 2 ask for prioritisation, a plan for the day or a progress summary ("plan my day") and let the supervisor
   pick the right agent.
 
-The application is intentionally single-user: there is no authentication, and preferences are a single record
-(see [Known limitations](#14-known-limitations)).
+Since Phase 3.0 users sign in with Keycloak (demo users `alice` / `alice` and `bob` / `bob`), and each user only ever
+sees and changes their own tasks, preferences and assistant conversations
+(see [`docs/phase-3.0/IMPLEMENTATION.md`](docs/phase-3.0/IMPLEMENTATION.md)).
 
 ### Screenshots
 
@@ -88,27 +89,20 @@ Phase 2 (see [`docs/phase-2/screenshots`](docs/phase-2/screenshots)):
 - Today's date, weekday, timezone and daily available minutes are injected into every agent's system message at call
   time, so "tomorrow" and "overdue" are resolved correctly
 - `POST /api/ai/supervisor/chat` returns the answer plus the agents invoked, the tools called, the number of LLM calls
-  and the token usage, so routing cost is visible (measured per scenario by the Phase 3.1A evaluation harness)
+  and the token usage, so routing cost is visible (the input for the Phase 3 evaluations)
 - The UI has a **Supervisor / TaskAgent** switch; "Execution details" under each reply shows the route taken
 
-**Phase 3.1A — evaluation harness and live baseline**
+**Phase 3.0 — identity foundation**
 
-- A version-controlled **evaluation dataset** (`backend/src/test/resources/eval/dataset/`): 51 scenarios (47 executable) with a
-  database fixture, user turns, the expected final database state, required and prohibited tool behaviour, routing
-  expectations and deterministic answer checks; 4 authorization scenarios are marked `NOT_APPLICABLE` until the
-  application has user identity, and are in no pass-rate denominator
-- A **scripted regression suite** (`ScriptedRegressionEvalTest`, runs in every build, no API key): the real Spring
-  wiring, supervisor loop, tools and PostgreSQL with a scripted model, verifying the tool contracts, the database
-  effects, fixture isolation and the harness itself. Its results say nothing about a model
-- An **opt-in live-model evaluation** (`LiveModelEvalTest`, `mvn test -Plive-eval`): every executable scenario runs
-  through the real `MultiAgentService` and the configured OpenAI model, 3 times by default, each repetition from a
-  freshly reset database and a new conversation, with a fixed `Clock` and the fixture's timezone
-- **Structured execution traces**: `AgentRunRecorder` now records, per request, every agent invocation, tool execution
-  (caller, sanitized arguments, sanitized result, status, duration) and LLM call (tokens, duration, model name), and
-  hands the trace to `ExecutionTraceListener` beans; attribution the framework does not expose is `UNKNOWN`
-- **Reports** in JSON and Markdown under `backend/target/eval-reports/<suite>/`, stamped with the Git commit, model
-  identifier and generation settings, SHA-256 hashes of the prompt templates, the dataset and the configuration, the
-  fixed clock and timezones, the repetition count and the runner version; passes are reported with their sample sizes
+- Keycloak 26 (in `infrastructure/docker-compose.yml`) with the `taskflow` realm, demo users `alice` and `bob`
+- The backend is an OAuth2 resource server: every `/api/**` request needs a Keycloak access token (issuer, signature,
+  expiry and the `taskflow-api` audience are validated); Swagger stays public
+- `CurrentUserProvider` is the only source of the caller's identity; users are created on their first request
+- Tasks, preferences and AI conversations have an owner (Flyway `V3__add_user_identity.sql`); every query is scoped to
+  it, and another user's task or conversation returns `404`
+- The AI tools take no user id: a task id from another user, even injected into a prompt, is "not found"
+- Conversation ids are issued by the server (`POST /api/ai/conversations`) and checked before any agent runs
+- The Next.js app signs in with Authorization Code + PKCE and sends the access token with every request
 
 ---
 
@@ -280,16 +274,21 @@ __tests__/      Vitest + Testing Library tests
 
 ---
 
-## 5. PostgreSQL setup
+## 5. PostgreSQL and Keycloak setup
 
-Start PostgreSQL with Docker Compose:
+Start PostgreSQL and Keycloak with Docker Compose:
 
 ```bash
 cd infrastructure
-docker compose up -d
+docker compose up -d               # both services
+docker compose up -d keycloak      # only Keycloak, if you use a locally installed PostgreSQL
 ```
 
-This starts `postgres:16-alpine` on `localhost:5432` with database/user/password `taskflow` / `taskflow` / `taskflow`
+Keycloak runs on <http://localhost:8180> (admin console: `admin` / `admin`) in development mode and imports the
+`taskflow` realm from `infrastructure/keycloak/taskflow-realm.json` on start, with the demo users `alice` / `alice` and
+`bob` / `bob`. Its data is in memory, so removing the container resets it to the realm file.
+
+Docker Compose also starts `postgres:16-alpine` on `localhost:5432` with database/user/password `taskflow` / `taskflow` / `taskflow`
 (override via `infrastructure/.env`, see `.env.example`). Data is persisted in the `taskflow_pgdata` volume.
 
 Useful commands:
@@ -351,8 +350,16 @@ cd backend
 mvn spring-boot:run
 ```
 
-The API starts on <http://localhost:8080>. On startup Flyway applies `V1__create_tasks.sql` and `V2__create_user_preferences.sql`,
-then Hibernate validates that the entities match the schema (`ddl-auto=validate`).
+The API starts on <http://localhost:8080>. On startup Flyway applies `V1__create_tasks.sql`,
+`V2__create_user_preferences.sql` and `V3__add_user_identity.sql`, then Hibernate validates that the entities match the
+schema (`ddl-auto=validate`). V3 hands tasks and preferences created before Phase 3.0 to the demo user `alice`.
+
+> **Flyway reports a checksum mismatch for version 3?** Your database already has a different V3 from an earlier
+> experiment. Use a fresh database for this phase, for example `CREATE DATABASE taskflow_identity;` and
+> `DB_URL=jdbc:postgresql://localhost:5432/taskflow_identity`.
+
+Every `/api/**` request needs a Keycloak access token; without one the API answers `401`. Keycloak does not have to be
+running for the backend to start: the token issuer is contacted on the first authenticated request.
 
 To build a runnable jar:
 
@@ -371,8 +378,9 @@ npm install
 npm run dev
 ```
 
-Open <http://localhost:3000>. The frontend talks to the backend at `http://localhost:8080` by default
-(configurable, see below).
+Copy `.env.example` to `.env.local` first (it contains the Keycloak settings). Open <http://localhost:3000>: you are sent
+to the Keycloak sign-in page; sign in as `alice` / `alice` or `bob` / `bob`. The frontend talks to the backend at
+`http://localhost:8080` by default (configurable, see below).
 
 Production build:
 
@@ -394,6 +402,8 @@ npm start
 | `DB_PASSWORD` | `taskflow` | Database password |
 | `SERVER_PORT` | `8080` | HTTP port |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated list of allowed origins |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8180/realms/taskflow` | Phase 3.0: issuer of the access tokens the API accepts |
+| `KEYCLOAK_API_AUDIENCE` | `taskflow-api` | Phase 3.0: audience (`aud`) every access token must contain |
 | `OPENAI_API_KEY` | *(unset)* | OpenAI API key; required for the assistant |
 | `OPENAI_MODEL_NAME` | `gpt-4o-mini` | Any OpenAI chat model that supports tool calling |
 | `OPENAI_TEMPERATURE` | `0.2` | Sampling temperature |
@@ -413,6 +423,9 @@ Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080` | Base URL of the Spring Boot API |
+| `NEXT_PUBLIC_KEYCLOAK_URL` | `http://localhost:8180` | Keycloak base URL |
+| `NEXT_PUBLIC_KEYCLOAK_REALM` | `taskflow` | Keycloak realm |
+| `NEXT_PUBLIC_KEYCLOAK_CLIENT_ID` | `taskflow-web` | Public client used for the PKCE sign-in |
 
 **Infrastructure** (copy `infrastructure/.env.example` to `infrastructure/.env` to override):
 
@@ -422,6 +435,8 @@ Other `taskflow.ai.*` keys in `application.yml` (`max-tool-round-trips`, `memory
 | `POSTGRES_USER` | `taskflow` |
 | `POSTGRES_PASSWORD` | `taskflow` |
 | `POSTGRES_PORT` | `5432` |
+| `KEYCLOAK_PORT` | `8180` |
+| `KEYCLOAK_ADMIN` / `KEYCLOAK_ADMIN_PASSWORD` | `admin` / `admin` |
 
 ---
 
@@ -434,6 +449,16 @@ With the backend running:
 
 Endpoints are grouped under the **Tasks**, **Dashboard**, **Preferences** and **AI Assistant** tags, with request/response
 schemas, validation constraints and the documented error responses.
+
+To call the API from Swagger UI, get a token for a demo user with the development-only `taskflow-dev-cli` client and
+paste it under **Authorize**:
+
+```bash
+curl -s -d client_id=taskflow-dev-cli -d grant_type=password -d username=alice -d password=alice \
+  http://localhost:8180/realms/taskflow/protocol/openid-connect/token | jq -r .access_token
+```
+
+The curl examples below assume that token is in `$TOKEN`.
 
 ---
 
@@ -451,6 +476,7 @@ schemas, validation constraints and the documented error responses.
 | `GET` | `/api/preferences` | Read preferences | `200` |
 | `PUT` | `/api/preferences` | Update timezone and daily available minutes | `200` |
 | `GET` | `/api/ai/status` | Whether the assistant is configured (`available`, `model`) | `200` |
+| `POST` | `/api/ai/conversations` | Start a conversation; returns a server-issued `conversationId` owned by the caller (Phase 3.0) | `201` |
 | `POST` | `/api/ai/chat` | Send a message to the single `TaskAgent` (Phase 1) | `200` |
 | `POST` | `/api/ai/supervisor/chat` | Send a message to the `TaskFlowSupervisor`, which routes to the specialised agents (Phase 2) | `200` |
 | `GET` | `/api/ai/agents` | The agents behind the supervisor (name, description, whether they can modify tasks) | `200` |
@@ -490,7 +516,8 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 | Situation | Status |
 |---|---|
 | Validation error / invalid enum value / malformed body | `400` |
-| Unknown task id | `404` |
+| Missing, expired or invalid access token | `401` |
+| Unknown task id, or a task or conversation owned by another user | `404` |
 | OpenAI rate limited (`retryable: true`) | `429` |
 | OpenAI rejected the request (e.g. invalid request) | `502` |
 | OpenAI unavailable, bad API key or unknown model | `503` |
@@ -503,8 +530,9 @@ Errors use RFC 9457 Problem Details (`application/problem+json`):
 
 ### Send a message
 
-The browser generates a `conversationId` (a UUID) and reuses it for every message of one conversation; the backend keeps
-a separate chat memory per id. Both fields are required.
+Start a conversation first: `POST /api/ai/conversations` returns a `conversationId` owned by the signed-in user. Send it
+with every message of that conversation; the backend keeps a separate chat memory per conversation and rejects (`404`)
+an id it did not issue to this user. Both fields are required.
 
 ```http
 POST /api/ai/chat
@@ -528,8 +556,9 @@ refreshes the task lists and statistics.
 With curl:
 
 ```bash
-curl -s http://localhost:8080/api/ai/chat -H "Content-Type: application/json" \
-  -d '{"conversationId":"conv-1","message":"Show my pending tasks."}'
+CONV=$(curl -s -X POST http://localhost:8080/api/ai/conversations -H "Authorization: Bearer $TOKEN" | jq -r .conversationId)
+curl -s http://localhost:8080/api/ai/chat -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"conversationId\":\"$CONV\",\"message\":\"Show my pending tasks.\"}"
 ```
 
 ### Ask the supervisor (Phase 2)
@@ -564,9 +593,9 @@ Content-Type: application/json
 the UI uses it to refresh the task views. `llmCalls` counts every model call (planner steps, agent turns, tool rounds).
 
 ```bash
-curl -s http://localhost:8080/api/ai/supervisor/chat -H "Content-Type: application/json" \
-  -d '{"conversationId":"conv-1","message":"What should I focus on first?"}'
-curl -s http://localhost:8080/api/ai/agents
+curl -s http://localhost:8080/api/ai/supervisor/chat -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d "{\"conversationId\":\"$CONV\",\"message\":\"What should I focus on first?\"}"
+curl -s http://localhost:8080/api/ai/agents -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Supported natural-language commands
@@ -625,34 +654,11 @@ order while the real LangChain4j supervisor loop, the real tools and (in the int
   and the Phase 1 endpoint still working
 - `TaskToolsTest`, `TaskQueryToolsTest` (unit): argument mapping, timezone-aware dates, error messages for the model
 
+Phase 3.0 runs every test as an authenticated demo user (Spring Security's `jwt()` request post-processor, so no
+Keycloak is needed) and adds `IdentityIsolationIntegrationTest`: `401` without a token, alice's tasks, dashboard,
+preferences and conversations are invisible to bob, and bob's TaskAgent cannot change alice's task even when given its id.
+
 To try the agents for real, start the backend with `OPENAI_API_KEY` set and use the curl commands in section 12.
-
-**Evaluation harness (Phase 3.1A).** Two suites read the same scenario dataset and must never be confused:
-
-| Suite | Command | Model | Cost | Report |
-|---|---|---|---|---|
-| Scripted regression (`ScriptedRegressionEvalTest`, tag `eval-regression`) | `mvn test` (part of every build) or `mvn test -Dtest.groups=eval-regression` | `ScriptedChatModel` replaying fixed answers | none | `backend/target/eval-reports/scripted-regression/` |
-| Live-model evaluation (`LiveModelEvalTest`, tag `live-eval`) | `OPENAI_API_KEY=sk-... mvn test -Plive-eval` | the configured OpenAI model (`OPENAI_MODEL_NAME`, default `gpt-4o-mini`) | paid API calls | `backend/target/eval-reports/live/` |
-
-The scripted suite is a regression test of the application wiring, the tool contracts, the database effects and the
-harness itself; its pass rate is not a measurement of any model. The live suite is the measurement: it is excluded
-from every ordinary build and from CI by the Surefire configuration, and only the `live-eval` Maven profile runs it.
-Live options are JVM system properties:
-
-```bash
-cd backend
-# 3 repetitions per scenario (default), all executable scenarios
-OPENAI_API_KEY=sk-... mvn test -Plive-eval
-# 5 repetitions, only two scenarios and one category, reports elsewhere
-OPENAI_API_KEY=sk-... mvn test -Plive-eval \
-  -Dtaskflow.eval.repetitions=5 \
-  -Dtaskflow.eval.scenarios=CREATE-01,UPDATE-06,DAILY_PLANNING \
-  -Dtaskflow.eval.report-dir=../docs/phase-3/eval-reports
-```
-
-Each report is written as `report.json` (complete) and `report.md` (readable) into a `<timestamp>-<commit>/` directory
-plus a `latest/` copy. See [`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md) for the dataset schema,
-the assertions and how to read a report.
 
 **Frontend** (Vitest + Testing Library):
 
@@ -672,21 +678,23 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 
 ## 14. Known limitations
 
-- **No authentication.** Everything runs as a single user; conversation ids are generated by the browser and are not
-  bound to an identity.
+- **Development identity setup.** Keycloak runs in development mode (in-memory store, HTTP, bootstrap admin), the
+  realm includes a password-grant client for local curl/Swagger use, and the browser keeps tokens in `sessionStorage`
+  (readable by any script on the page). A production setup would use a hardened Keycloak and a backend-for-frontend with
+  HttpOnly cookies. There are no roles yet: every user has the same permissions over their own data.
 - **No delete tool.** Deletion, when it comes, will go through a backend-enforced confirmation rather than a tool the
   model can call. Create, read, update and status changes are available (`TaskAgent`).
 - **Conversation memory is in-process**: sliding windows per conversation (TaskAgent and the supervisor's planner),
   lost on restart. The three specialists keep no memory; each analysis starts from the live data.
 - **Conversation memory is never evicted.** Each window is bounded, but the number of conversations is not: every new
-  `conversationId` (chosen by the browser, unauthenticated) allocates a memory in the Phase 1 TaskAgent, the Phase 2
+  conversation a signed-in user starts allocates a memory in the Phase 1 TaskAgent, the Phase 2
   TaskAgent and the planner, and they live until restart. `memory.retention` and `memory.max-conversations` are
   reserved for this and not enforced yet; do not expose the backend publicly as it is.
 - **The two modes do not share memory.** The Phase 1 TaskAgent and the supervisor's TaskAgent are separate
   instances, so the UI starts a new conversation when you switch mode.
 - **The supervisor costs more than one agent.** Every request pays at least two extra LLM calls (planner in, planner
-  "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage`, and the
-  evaluation harness records them per scenario, so any future optimisation can be measured against the baseline.
+  "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage` so this can
+  be measured; Phase 3.1 evaluates it and Phase 3.5 puts budgets on it.
 - **Routing is probabilistic.** The planner is an LLM; an ambiguous message may go to a less suitable agent. Each
   specialist states what it did, and only `TaskAgent` can change data, so a wrong route costs time, not data.
 - **Time estimates in plans are assumptions.** Tasks have no duration field, so `PlanningAgent` guesses modest durations
@@ -709,31 +717,13 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
   and reports agents, tools, LLM calls and tokens per request. See
   [`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md). Still open: a confirmation workflow for
   deletion, guardrails, persistent memory, streaming.
-- **Phase 3 — Building Reliable and Governed Agentic AI Systems.** Phase 2 showed that a supervisor can route between
-  agents; Phase 3 makes that system trustworthy enough to run for real users: measurable, bounded, identity-aware and
-  observable. The milestones, in order:
-  - **3.1 Evaluations.** *3.1A (done):* a version-controlled scenario dataset, a scripted regression suite, an opt-in
-    repeated live-model evaluation with isolated fixtures and a fixed clock, structured execution traces, deterministic
-    assertions, and JSON/Markdown reports with reproducibility metadata. See
-    [`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md). *3.1B:* qualitative rubrics, an LLM-as-judge
-    for the criteria the deterministic checks cannot decide, and evaluation reporting in CI.
-  - **3.2 Identity and authorization.** Authenticated users, task ownership, and tool calls that always act for the
-    authenticated caller. The `NOT_APPLICABLE` authorization scenarios of the dataset become executable here.
-  - **3.3 Guardrails.** Input and output guardrails on the agents (prompt-injection handling, unsupported operations,
-    scope), confirmation workflows for destructive actions such as deletion.
-  - **3.4 Shared state and persistent memory.** Conversation memory that survives restarts, is bound to an identity,
-    evicted by policy and isolated between users; shared state between agents where a request needs it.
-  - **3.5 Critic Agent.** A reviewer that checks an answer against the data and the request before it reaches the user.
-  - **3.6 Governor.** Budgets and policies enforced in code: invocation, tool and token limits per request and per user,
-    with honest degradation when a budget is hit.
-  - **3.7 Observability.** The execution traces exported to a tracing backend, with metrics for routing, cost and
-    latency in production.
-
-  Routing accuracy and token efficiency stay in the dataset as **evaluation metrics**: every milestone is measured
-  against the 3.1A baseline, and a future cost-aware routing experiment, if it is worth doing, will be compared the
-  same way rather than implemented first.
+- **Phase 3.0 — Identity foundation (done).** Keycloak sign-in, per-user tasks, preferences and conversations, and AI
+  tools that always act for the authenticated user. See [`docs/phase-3.0/IMPLEMENTATION.md`](docs/phase-3.0/IMPLEMENTATION.md).
+- **Phase 3.1–3.5 — Reliable and governed agentic AI.** 3.1 evals (a repeatable evaluation framework and live
+  baseline), 3.2 deterministic domain rules, 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
+  3.5 runtime AI governance (execution budgets, auditing and human approval of sensitive actions).
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),
-[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md),
+[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md) and
 [`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md) and
-[`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md) for the design decisions behind each phase.
+[`docs/phase-3.0/IMPLEMENTATION.md`](docs/phase-3.0/IMPLEMENTATION.md) for the design decisions behind each phase.

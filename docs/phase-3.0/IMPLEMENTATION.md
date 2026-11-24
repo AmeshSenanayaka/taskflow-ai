@@ -73,6 +73,11 @@ in production.
 
 The removed `taskflow.ai.dev-user-id` property is no longer needed.
 
+**Existing local databases.** If Flyway stops with a checksum mismatch for migration version 3, that database
+already holds a different V3 from an earlier experiment. Use a fresh database for this phase, for example
+`CREATE DATABASE taskflow_identity;` and `DB_URL=jdbc:postgresql://localhost:5432/taskflow_identity`. Do not rename
+this migration to V4: Flyway would then reject the unknown V3 already applied.
+
 ## API changes
 
 - Every `/api/**` endpoint now returns **401** without a valid token.
