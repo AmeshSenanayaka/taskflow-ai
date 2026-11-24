@@ -1,10 +1,11 @@
-# TaskFlow AI — Phase 3.0
+# TaskFlow AI — Phase 3.1
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
 **AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system** in
 which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`, `PlanningAgent` or `SummaryAgent`
-(Phase 2) and, new in Phase 3.0, **Keycloak sign-in with per-user data**: every task, preference and AI conversation
-belongs to the authenticated user, and the AI tools always act for that user.
+(Phase 2), **Keycloak sign-in with per-user data** (Phase 3.0) and, new in Phase 3.1, an **evaluation framework**
+that measures the agent system on a version-controlled scenario dataset, with a scripted regression tier in every
+build and an opt-in live-model baseline.
 
 This repository accompanies the Medium article series
 **"Building Agentic AI Applications with Java: From Spring Boot to Multi-Agent Systems Using LangChain4j"**.
@@ -14,8 +15,9 @@ This repository accompanies the Medium article series
 | Phase 0 | Traditional full-stack task manager | ✅ Implemented |
 | Phase 1 | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` | ✅ Implemented |
 | Phase 2 | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | ✅ Implemented |
-| **Phase 3.0** | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user (this repository state) | ✅ Implemented |
-| Phase 3.1–3.5 | Reliable and governed agentic AI: evals, rules, guardrails, isolated persistent memory, runtime AI governance | Planned |
+| Phase 3.0 | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user | ✅ Implemented |
+| **Phase 3.1** | Evaluation framework: scenario dataset, scripted regression tier, opt-in live-model baseline, reproducible reports (this repository state) | ✅ Implemented |
+| Phase 3.2–3.5 | Rules, guardrails, isolated persistent memory, runtime AI governance | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -654,6 +656,16 @@ order while the real LangChain4j supervisor loop, the real tools and (in the int
   and the Phase 1 endpoint still working
 - `TaskToolsTest`, `TaskQueryToolsTest` (unit): argument mapping, timezone-aware dates, error messages for the model
 
+**Evaluation (Phase 3.1).** `ScriptedRegressionEvalTest` runs the scenario dataset
+(`backend/src/test/resources/eval/scenarios/`) with the scripted model in every build; `LiveModelEvalTest` measures
+the real model and is opt-in:
+
+```bash
+OPENAI_API_KEY=sk-... mvn test -Dtest=LiveModelEvalTest -Deval.live=true -Deval.repetitions=3
+```
+
+Reports are written to `backend/target/eval-reports/`. See [`docs/phase-3.1/IMPLEMENTATION.md`](docs/phase-3.1/IMPLEMENTATION.md).
+
 Phase 3.0 runs every test as an authenticated demo user (Spring Security's `jwt()` request post-processor, so no
 Keycloak is needed) and adds `IdentityIsolationIntegrationTest`: `401` without a token, alice's tasks, dashboard,
 preferences and conversations are invisible to bob, and bob's TaskAgent cannot change alice's task even when given its id.
@@ -719,8 +731,10 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
   deletion, guardrails, persistent memory, streaming.
 - **Phase 3.0 — Identity foundation (done).** Keycloak sign-in, per-user tasks, preferences and conversations, and AI
   tools that always act for the authenticated user. See [`docs/phase-3.0/IMPLEMENTATION.md`](docs/phase-3.0/IMPLEMENTATION.md).
-- **Phase 3.1–3.5 — Reliable and governed agentic AI.** 3.1 evals (a repeatable evaluation framework and live
-  baseline), 3.2 deterministic domain rules, 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
+- **Phase 3.1 — Evaluation framework (done).** A version-controlled scenario dataset, a scripted regression tier in
+  every build and an opt-in live-model baseline with reproducible reports. See
+  [`docs/phase-3.1/IMPLEMENTATION.md`](docs/phase-3.1/IMPLEMENTATION.md).
+- **Phase 3.2–3.5 — Reliable and governed agentic AI.** 3.2 deterministic domain rules, 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
   3.5 runtime AI governance (execution budgets, auditing and human approval of sensitive actions).
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),

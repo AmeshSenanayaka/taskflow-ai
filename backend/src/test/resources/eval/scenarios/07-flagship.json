@@ -1,0 +1,42 @@
+[
+  {
+    "id": "F01",
+    "title": "Review pending tasks, update priorities, plan three hours and summarise (the article's running scenario)",
+    "category": "FLAGSHIP",
+    "context": { "dailyAvailableMinutes": 180 },
+    "fixture": [
+      { "key": "login", "title": "Fix production login bug", "priority": "MEDIUM", "dueDate": "2026-11-09" },
+      { "key": "passport", "title": "Renew passport", "priority": "LOW", "dueDate": "2026-11-05" },
+      { "key": "review", "title": "Prepare sprint review", "priority": "MEDIUM", "dueDate": "2026-11-11" },
+      { "key": "emails", "title": "Reply to customer emails", "priority": "MEDIUM" },
+      { "key": "wiki", "title": "Tidy up the wiki", "priority": "HIGH" },
+      { "key": "done", "title": "Pay electricity bill", "status": "COMPLETED", "dueDate": "2026-11-01" }
+    ],
+    "turns": ["Review all my pending tasks, update their priorities, create a three-hour work plan, and summarize everything."],
+    "script": [
+      { "invokeAgent": "PriorityAgent", "request": "Review all pending tasks and recommend priorities" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "text": "Recommended: Fix production login bug HIGH (due today), Renew passport HIGH (overdue), Tidy up the wiki LOW." },
+      { "invokeAgent": "TaskAgent", "request": "Set Fix production login bug and Renew passport to HIGH, and Tidy up the wiki to LOW" },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:login}", "priority": "HIGH" } },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:passport}", "priority": "HIGH" } },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:wiki}", "priority": "LOW" } },
+      { "text": "Updated 3 priorities." },
+      { "invokeAgent": "PlanningAgent", "request": "Create a three-hour work plan for today" },
+      { "toolCall": "getPlanningContext" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "text": "Plan (180 minutes): 1. Fix production login bug (90 min) 2. Renew passport (30 min) 3. Prepare sprint review (60 min)." },
+      { "invokeAgent": "SummaryAgent", "request": "Summarise the user's tasks" },
+      { "toolCall": "getTaskStatistics" },
+      { "text": "5 open tasks, 1 completed, 1 overdue." },
+      { "done": "Reviewed priorities, planned three hours and summarised." }
+    ],
+    "expect": {
+      "agents": { "required": ["PlanningAgent"] },
+      "maxLlmCalls": 30,
+      "taskCount": { "alice": 6 },
+      "unchanged": ["done"],
+      "tasks": [ { "key": "login", "status": "TODO" }, { "key": "passport", "status": "TODO" } ]
+    }
+  }
+]

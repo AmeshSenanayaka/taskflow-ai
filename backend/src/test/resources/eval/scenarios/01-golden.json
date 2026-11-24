@@ -1,0 +1,114 @@
+[
+  {
+    "id": "G01",
+    "title": "Create a task with an explicit priority and date",
+    "category": "GOLDEN",
+    "turns": ["Create a high-priority task to review the architecture document on 2026-11-14"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Create a high-priority task to review the architecture document on 2026-11-14" },
+      { "toolCall": "createTask", "arguments": { "title": "Review the architecture document", "priority": "HIGH", "dueDate": "2026-11-14" } },
+      { "text": "Created \"Review the architecture document\" (HIGH), due 2026-11-14." },
+      { "done": "Created the task." }
+    ],
+    "expect": {
+      "agents": { "required": ["TaskAgent"] },
+      "tools": { "required": ["createTask"] },
+      "dataChanged": true,
+      "maxLlmCalls": 8,
+      "tasks": [ { "titleContains": "architecture", "priority": "HIGH", "status": "TODO", "dueDate": "2026-11-14" } ],
+      "taskCount": { "alice": 1 }
+    }
+  },
+  {
+    "id": "G02",
+    "title": "Resolve a relative date (tomorrow) in the user's timezone",
+    "category": "GOLDEN",
+    "turns": ["Add a task to call the bank tomorrow"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Add a task to call the bank tomorrow" },
+      { "toolCall": "createTask", "arguments": { "title": "Call the bank", "dueDate": "2026-11-10" } },
+      { "text": "Created \"Call the bank\", due 2026-11-10." },
+      { "done": "Created the task." }
+    ],
+    "expect": {
+      "agents": { "required": ["TaskAgent"] },
+      "dataChanged": true,
+      "maxLlmCalls": 8,
+      "tasks": [ { "titleContains": "bank", "dueDate": "2026-11-10" } ],
+      "taskCount": { "alice": 1 }
+    }
+  },
+  {
+    "id": "G03",
+    "title": "Complete a task found by its title",
+    "category": "GOLDEN",
+    "fixture": [
+      { "key": "report", "title": "Submit expense report", "priority": "MEDIUM", "dueDate": "2026-11-12" },
+      { "key": "blog", "title": "Write blog post on agent evaluation", "priority": "LOW" }
+    ],
+    "turns": ["Mark the expense report task as done"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Mark the expense report task as done" },
+      { "toolCall": "listTasks", "arguments": { "search": "expense report", "page": 0, "size": 10 } },
+      { "toolCall": "updateTaskStatus", "arguments": { "taskId": "${task:report}", "status": "COMPLETED" } },
+      { "text": "Marked \"Submit expense report\" as completed." },
+      { "done": "Completed the task." }
+    ],
+    "expect": {
+      "agents": { "required": ["TaskAgent"] },
+      "dataChanged": true,
+      "maxLlmCalls": 10,
+      "tasks": [ { "key": "report", "status": "COMPLETED" } ],
+      "unchanged": ["blog"],
+      "taskCount": { "alice": 2 }
+    }
+  },
+  {
+    "id": "G04",
+    "title": "Change one task's priority and leave the others alone",
+    "category": "GOLDEN",
+    "fixture": [
+      { "key": "report", "title": "Submit expense report", "priority": "MEDIUM", "dueDate": "2026-11-12" },
+      { "key": "blog", "title": "Write blog post on agent evaluation", "priority": "LOW" }
+    ],
+    "turns": ["Change the priority of the blog post task to high"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Change the priority of the blog post task to high" },
+      { "toolCall": "listTasks", "arguments": { "search": "blog post", "page": 0, "size": 10 } },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:blog}", "priority": "HIGH" } },
+      { "text": "Changed the priority of \"Write blog post on agent evaluation\" to HIGH." },
+      { "done": "Updated the priority." }
+    ],
+    "expect": {
+      "agents": { "required": ["TaskAgent"] },
+      "dataChanged": true,
+      "maxLlmCalls": 10,
+      "tasks": [ { "key": "blog", "priority": "HIGH", "status": "TODO" } ],
+      "unchanged": ["report"]
+    }
+  },
+  {
+    "id": "G05",
+    "title": "Answer a read-only question about overdue tasks without changing data",
+    "category": "GOLDEN",
+    "fixture": [
+      { "key": "late", "title": "Renew passport", "priority": "HIGH", "dueDate": "2026-11-05" },
+      { "key": "future", "title": "Book dentist appointment", "priority": "LOW", "dueDate": "2026-11-20" },
+      { "key": "done", "title": "Pay electricity bill", "status": "COMPLETED", "dueDate": "2026-11-01" }
+    ],
+    "turns": ["Which of my tasks are overdue?"],
+    "script": [
+      { "invokeAgent": "SummaryAgent", "request": "Which of my tasks are overdue?" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"], "dueDateTo": "2026-11-08" } },
+      { "text": "One task is overdue: Renew passport (HIGH, due 2026-11-05)." },
+      { "done": "Listed the overdue tasks." }
+    ],
+    "expect": {
+      "dataChanged": false,
+      "maxLlmCalls": 8,
+      "responseContains": ["Renew passport"],
+      "responseNotContains": ["Pay electricity bill"],
+      "unchanged": ["late", "future", "done"]
+    }
+  }
+]

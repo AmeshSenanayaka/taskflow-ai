@@ -1,0 +1,85 @@
+[
+  {
+    "id": "T01",
+    "title": "A progress question goes to the SummaryAgent",
+    "category": "TRAJECTORY",
+    "fixture": [
+      { "key": "a", "title": "Prepare sprint review", "priority": "HIGH", "dueDate": "2026-11-11" },
+      { "key": "b", "title": "Update onboarding guide", "status": "COMPLETED" }
+    ],
+    "turns": ["How am I doing this week?"],
+    "script": [
+      { "invokeAgent": "SummaryAgent", "request": "How am I doing this week?" },
+      { "toolCall": "getTaskStatistics" },
+      { "text": "You have 2 tasks: 1 completed, 1 pending, none overdue." },
+      { "done": "Summarised progress." }
+    ],
+    "expect": {
+      "agents": { "required": ["SummaryAgent"], "forbidden": ["TaskAgent"] },
+      "dataChanged": false,
+      "maxLlmCalls": 8,
+      "unchanged": ["a", "b"]
+    }
+  },
+  {
+    "id": "T02",
+    "title": "A planning request goes to the PlanningAgent",
+    "category": "TRAJECTORY",
+    "fixture": [
+      { "key": "a", "title": "Prepare sprint review", "priority": "HIGH", "dueDate": "2026-11-09" },
+      { "key": "b", "title": "Reply to customer emails", "priority": "MEDIUM" }
+    ],
+    "turns": ["Plan my day"],
+    "script": [
+      { "invokeAgent": "PlanningAgent", "request": "Plan my day" },
+      { "toolCall": "getPlanningContext" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "text": "Plan for Monday 2026-11-09: 1. Prepare sprint review (HIGH, due today) 2. Reply to customer emails." },
+      { "done": "Planned the day." }
+    ],
+    "expect": {
+      "agents": { "required": ["PlanningAgent"], "forbidden": ["TaskAgent"] },
+      "dataChanged": false,
+      "maxLlmCalls": 10,
+      "responseContains": ["Prepare sprint review"],
+      "unchanged": ["a", "b"]
+    }
+  },
+  {
+    "id": "T03",
+    "title": "A prioritisation question goes to the PriorityAgent",
+    "category": "TRAJECTORY",
+    "fixture": [
+      { "key": "a", "title": "Fix production login bug", "priority": "HIGH", "dueDate": "2026-11-09" },
+      { "key": "b", "title": "Tidy up the wiki", "priority": "LOW" }
+    ],
+    "turns": ["What should I focus on first?"],
+    "script": [
+      { "invokeAgent": "PriorityAgent", "request": "What should I focus on first?" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "text": "Focus first on: Fix production login bug (HIGH, due today)." },
+      { "done": "Prioritised." }
+    ],
+    "expect": {
+      "agents": { "required": ["PriorityAgent"], "forbidden": ["TaskAgent"] },
+      "dataChanged": false,
+      "maxLlmCalls": 8,
+      "responseContains": ["Fix production login bug"],
+      "unchanged": ["a", "b"]
+    }
+  },
+  {
+    "id": "T04",
+    "title": "A greeting is answered by the planner without calling any agent",
+    "category": "TRAJECTORY",
+    "turns": ["Hi! What can you do?"],
+    "script": [
+      { "done": "Hello! I can create and update your tasks, prioritise them, plan your day and summarise your progress." }
+    ],
+    "expect": {
+      "agents": { "none": true },
+      "dataChanged": false,
+      "maxLlmCalls": 2
+    }
+  }
+]
