@@ -10,9 +10,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
- * Single-user preferences for Phase 0. There is exactly one row with {@link #SINGLETON_ID}.
+ * Per-user preferences (Phase 3.0; Phase 0 had a single global row). A row is created with the column
+ * defaults when the user is first provisioned.
  */
 @Entity
 @Table(name = "user_preferences")
@@ -21,11 +23,10 @@ import java.time.Instant;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class UserPreferences {
 
-    public static final short SINGLETON_ID = 1;
-
     @Id
-    @Column(name = "id", nullable = false)
-    private Short id;
+    @Setter(AccessLevel.NONE)
+    @Column(name = "user_id", nullable = false, updatable = false)
+    private UUID userId;
 
     @Column(name = "timezone", nullable = false, length = 64)
     private String timezone;
@@ -36,8 +37,8 @@ public class UserPreferences {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public UserPreferences(String timezone, Integer dailyAvailableMinutes, Instant updatedAt) {
-        this.id = SINGLETON_ID;
+    public UserPreferences(UUID userId, String timezone, Integer dailyAvailableMinutes, Instant updatedAt) {
+        this.userId = userId;
         this.timezone = timezone;
         this.dailyAvailableMinutes = dailyAvailableMinutes;
         this.updatedAt = updatedAt;

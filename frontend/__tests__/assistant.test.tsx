@@ -54,6 +54,8 @@ describe("AssistantChat", () => {
     // The existing tests exercise the Phase 1 TaskAgent; the supervisor tests below switch mode explicitly.
     window.sessionStorage.setItem("taskflow.assistant", JSON.stringify({ conversationId: null, messages: [], mode: "agent" }));
     mockedApi.status.mockResolvedValue({ available: true, model: "gpt-4o-mini" });
+    // Phase 3.0: the server issues a fresh conversation id for each new conversation.
+    mockedApi.startConversation.mockImplementation(async () => ({ conversationId: crypto.randomUUID() }));
   });
 
   it("defaults to the supervisor and routes messages to the supervisor endpoint", async () => {

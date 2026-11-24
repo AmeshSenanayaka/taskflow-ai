@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.UUID;
 
+import static com.taskflow.support.TestUsers.alice;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -44,7 +45,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createReturns201AndPersistsTask() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/tasks")
+        MvcResult result = mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "Write article", "description": "Phase 0", "dueDate": "2026-11-15"}
@@ -65,7 +66,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createWithBlankTitleReturns400ProblemDetail() throws Exception {
-        mockMvc.perform(post("/api/tasks")
+        mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"   \"}"))
                 .andExpect(status().isBadRequest())
@@ -77,7 +78,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     @Test
     void createWithTooLongTitleReturns400() throws Exception {
         String longTitle = "x".repeat(151);
-        mockMvc.perform(post("/api/tasks")
+        mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"" + longTitle + "\"}"))
                 .andExpect(status().isBadRequest())
@@ -86,7 +87,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void createWithInvalidPriorityEnumReturns400() throws Exception {
-        mockMvc.perform(post("/api/tasks")
+        mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"Task\", \"priority\": \"URGENT\"}"))
                 .andExpect(status().isBadRequest())
@@ -96,21 +97,21 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void listWithInvalidStatusQueryParamReturns400() throws Exception {
-        mockMvc.perform(get("/api/tasks").param("status", "DONE"))
+        mockMvc.perform(get("/api/tasks").with(alice()).param("status", "DONE"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(containsString("DONE")));
     }
 
     @Test
     void listWithInvalidPageSizeReturns400() throws Exception {
-        mockMvc.perform(get("/api/tasks").param("size", "500"))
+        mockMvc.perform(get("/api/tasks").with(alice()).param("size", "500"))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
     void getUnknownTaskReturns404ProblemDetail() throws Exception {
         UUID unknown = UUID.randomUUID();
-        mockMvc.perform(get("/api/tasks/{id}", unknown))
+        mockMvc.perform(get("/api/tasks/{id}", unknown).with(alice()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.title").value("Task not found"))
@@ -121,7 +122,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void updateReplacesFieldsAndReturns200() throws Exception {
         UUID id = createTask("Original", "LOW");
 
-        mockMvc.perform(put("/api/tasks/{id}", id)
+        mockMvc.perform(put("/api/tasks/{id}", id).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "Updated", "description": "New text", "priority": "HIGH",
@@ -139,7 +140,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void updateWithMissingPriorityReturns400() throws Exception {
         UUID id = createTask("Original", "LOW");
 
-        mockMvc.perform(put("/api/tasks/{id}", id)
+        mockMvc.perform(put("/api/tasks/{id}", id).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"Updated\", \"status\": \"TODO\"}"))
                 .andExpect(status().isBadRequest())
@@ -150,14 +151,14 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void completeThenReopenManagesCompletedAt() throws Exception {
         UUID id = createTask("Finish me", "MEDIUM");
 
-        mockMvc.perform(patch("/api/tasks/{id}/status", id)
+        mockMvc.perform(patch("/api/tasks/{id}/status", id).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"COMPLETED\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.completedAt").isNotEmpty());
 
-        mockMvc.perform(patch("/api/tasks/{id}/status", id)
+        mockMvc.perform(patch("/api/tasks/{id}/status", id).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"TODO\"}"))
                 .andExpect(status().isOk())
@@ -172,7 +173,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void patchStatusWithInvalidValueReturns400() throws Exception {
         UUID id = createTask("Task", "MEDIUM");
 
-        mockMvc.perform(patch("/api/tasks/{id}/status", id)
+        mockMvc.perform(patch("/api/tasks/{id}/status", id).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"DONE\"}"))
                 .andExpect(status().isBadRequest());
@@ -182,9 +183,9 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void deleteReturns204ThenTaskIsGone() throws Exception {
         UUID id = createTask("Delete me", "MEDIUM");
 
-        mockMvc.perform(delete("/api/tasks/{id}", id)).andExpect(status().isNoContent());
-        mockMvc.perform(get("/api/tasks/{id}", id)).andExpect(status().isNotFound());
-        mockMvc.perform(delete("/api/tasks/{id}", id)).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/tasks/{id}", id).with(alice())).andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/tasks/{id}", id).with(alice())).andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/tasks/{id}", id).with(alice())).andExpect(status().isNotFound());
     }
 
     @Test
@@ -193,7 +194,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
         createTask("Beta", "HIGH");
         createTask("Gamma", "MEDIUM");
 
-        mockMvc.perform(get("/api/tasks")
+        mockMvc.perform(get("/api/tasks").with(alice())
                         .param("sortBy", "PRIORITY")
                         .param("sortDirection", "DESC")
                         .param("page", "0")
@@ -207,7 +208,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(jsonPath("$.first").value(true))
                 .andExpect(jsonPath("$.last").value(false));
 
-        mockMvc.perform(get("/api/tasks").param("priority", "HIGH").param("search", "bet"))
+        mockMvc.perform(get("/api/tasks").with(alice()).param("priority", "HIGH").param("search", "bet"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content", hasSize(1)))
                 .andExpect(jsonPath("$.content[0].title").value("Beta"));
@@ -217,12 +218,12 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void dashboardStatsReflectPersistedTasks() throws Exception {
         UUID done = createTask("Done", "LOW");
         createTask("Open", "LOW");
-        mockMvc.perform(patch("/api/tasks/{id}/status", done)
+        mockMvc.perform(patch("/api/tasks/{id}/status", done).with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"status\": \"COMPLETED\"}"))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/dashboard/stats"))
+        mockMvc.perform(get("/api/dashboard/stats").with(alice()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.pending").value(1))
@@ -234,23 +235,23 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void preferencesCanBeReadAndUpdated() throws Exception {
-        mockMvc.perform(get("/api/preferences"))
+        mockMvc.perform(get("/api/preferences").with(alice()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Asia/Colombo"))
                 .andExpect(jsonPath("$.dailyAvailableMinutes").value(480));
 
-        mockMvc.perform(put("/api/preferences")
+        mockMvc.perform(put("/api/preferences").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"timezone\": \"Europe/Berlin\", \"dailyAvailableMinutes\": 360}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.timezone").value("Europe/Berlin"))
                 .andExpect(jsonPath("$.dailyAvailableMinutes").value(360));
 
-        mockMvc.perform(get("/api/preferences"))
+        mockMvc.perform(get("/api/preferences").with(alice()))
                 .andExpect(jsonPath("$.timezone").value("Europe/Berlin"));
 
         // restore the default for other tests
-        mockMvc.perform(put("/api/preferences")
+        mockMvc.perform(put("/api/preferences").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"timezone\": \"Asia/Colombo\", \"dailyAvailableMinutes\": 480}"))
                 .andExpect(status().isOk());
@@ -260,7 +261,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     void changingTheTimezoneDoesNotMoveAnExistingDueDate() throws Exception {
         // A due date is a calendar day. Moving the user from UTC+5:30 to UTC-10 (15.5 hours apart, so any
         // instant-based storage would shift the day) must leave the stored and returned date untouched.
-        MvcResult created = mockMvc.perform(post("/api/tasks")
+        MvcResult created = mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"Submit report\", \"dueDate\": \"2026-11-15\"}"))
                 .andExpect(status().isCreated())
@@ -268,22 +269,22 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
         UUID id = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
 
         try {
-            mockMvc.perform(put("/api/preferences")
+            mockMvc.perform(put("/api/preferences").with(alice())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"timezone\": \"Pacific/Honolulu\", \"dailyAvailableMinutes\": 480}"))
                     .andExpect(status().isOk());
 
-            mockMvc.perform(get("/api/tasks/{id}", id))
+            mockMvc.perform(get("/api/tasks/{id}", id).with(alice()))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.dueDate").value("2026-11-15"));
 
-            mockMvc.perform(get("/api/tasks").param("dueDate", "2026-11-15"))
+            mockMvc.perform(get("/api/tasks").with(alice()).param("dueDate", "2026-11-15"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", hasSize(1)))
                     .andExpect(jsonPath("$.content[0].id").value(id.toString()));
         } finally {
             // restore the default for other tests
-            mockMvc.perform(put("/api/preferences")
+            mockMvc.perform(put("/api/preferences").with(alice())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"timezone\": \"Asia/Colombo\", \"dailyAvailableMinutes\": 480}"))
                     .andExpect(status().isOk());
@@ -292,7 +293,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void preferencesRejectInvalidTimezone() throws Exception {
-        mockMvc.perform(put("/api/preferences")
+        mockMvc.perform(put("/api/preferences").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"timezone\": \"Mars/Olympus\", \"dailyAvailableMinutes\": 480}"))
                 .andExpect(status().isBadRequest())
@@ -301,7 +302,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
     @Test
     void openApiDocumentIsAvailable() throws Exception {
-        MvcResult result = mockMvc.perform(get("/v3/api-docs"))
+        MvcResult result = mockMvc.perform(get("/v3/api-docs").with(alice()))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode doc = objectMapper.readTree(result.getResponse().getContentAsString());
@@ -313,7 +314,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
     }
 
     private UUID createTask(String title, String priority) throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/tasks")
+        MvcResult result = mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\": \"" + title + "\", \"priority\": \"" + priority + "\"}"))
                 .andExpect(status().isCreated())

@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,15 +31,16 @@ class PreferencesServiceTest {
 
     /** 2026-11-02 22:30 UTC: still the 2nd in the Americas, already the 3rd east of UTC+1:30. */
     private static final Instant LATE_EVENING_UTC = Instant.parse("2026-11-02T22:30:00Z");
+    private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
 
     @Mock
     private PreferencesRepository preferencesRepository;
 
     @Test
     void todayIsResolvedInTheConfiguredTimezoneNotTheServers() {
-        assertThat(service("Asia/Colombo", Clock.fixed(LATE_EVENING_UTC, ZoneOffset.UTC)).today())
+        assertThat(service("Asia/Colombo", Clock.fixed(LATE_EVENING_UTC, ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 3));
-        assertThat(service("America/New_York", Clock.fixed(LATE_EVENING_UTC, ZoneOffset.UTC)).today())
+        assertThat(service("America/New_York", Clock.fixed(LATE_EVENING_UTC, ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 2));
     }
 
@@ -49,9 +51,9 @@ class PreferencesServiceTest {
         Clock serverInLosAngeles = Clock.fixed(LATE_EVENING_UTC, ZoneId.of("America/Los_Angeles"));
         Clock serverInTokyo = Clock.fixed(LATE_EVENING_UTC, ZoneId.of("Asia/Tokyo"));
 
-        assertThat(service("Asia/Colombo", serverInLosAngeles).today()).isEqualTo(LocalDate.of(2026, 11, 3));
-        assertThat(service("Asia/Colombo", serverInTokyo).today()).isEqualTo(LocalDate.of(2026, 11, 3));
-        assertThat(service("America/New_York", serverInTokyo).today()).isEqualTo(LocalDate.of(2026, 11, 2));
+        assertThat(service("Asia/Colombo", serverInLosAngeles).today(USER)).isEqualTo(LocalDate.of(2026, 11, 3));
+        assertThat(service("Asia/Colombo", serverInTokyo).today(USER)).isEqualTo(LocalDate.of(2026, 11, 3));
+        assertThat(service("America/New_York", serverInTokyo).today(USER)).isEqualTo(LocalDate.of(2026, 11, 2));
     }
 
     @Test
@@ -60,9 +62,9 @@ class PreferencesServiceTest {
         Instant justBeforeMidnight = Instant.parse("2026-11-02T18:29:59Z");
         Instant midnight = Instant.parse("2026-11-02T18:30:00Z");
 
-        assertThat(service("Asia/Colombo", Clock.fixed(justBeforeMidnight, ZoneOffset.UTC)).today())
+        assertThat(service("Asia/Colombo", Clock.fixed(justBeforeMidnight, ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 2));
-        assertThat(service("Asia/Colombo", Clock.fixed(midnight, ZoneOffset.UTC)).today())
+        assertThat(service("Asia/Colombo", Clock.fixed(midnight, ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 3));
     }
 
@@ -70,9 +72,9 @@ class PreferencesServiceTest {
     void todayOnADaylightSavingTransitionDayIsStillTheCalendarDay() {
         // New York leaves DST on 2026-11-01 at 02:00 local (06:00Z). 05:30Z is 01:30 EDT, 06:30Z is 01:30 EST:
         // the wall clock repeats, but the calendar day never wavers, which is all a LocalDate due date needs.
-        assertThat(service("America/New_York", Clock.fixed(Instant.parse("2026-11-01T05:30:00Z"), ZoneOffset.UTC)).today())
+        assertThat(service("America/New_York", Clock.fixed(Instant.parse("2026-11-01T05:30:00Z"), ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 1));
-        assertThat(service("America/New_York", Clock.fixed(Instant.parse("2026-11-01T06:30:00Z"), ZoneOffset.UTC)).today())
+        assertThat(service("America/New_York", Clock.fixed(Instant.parse("2026-11-01T06:30:00Z"), ZoneOffset.UTC)).today(USER))
                 .isEqualTo(LocalDate.of(2026, 11, 1));
     }
 
@@ -81,16 +83,16 @@ class PreferencesServiceTest {
         PreferencesService service = service("Asia/Colombo", Clock.fixed(LATE_EVENING_UTC, ZoneOffset.UTC));
         when(preferencesRepository.saveAndFlush(any(UserPreferences.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        PreferencesResponse response = service.update(new UpdatePreferencesRequest("Europe/Berlin", 360));
+        PreferencesResponse response = service.update(USER, new UpdatePreferencesRequest("Europe/Berlin", 360));
 
         assertThat(response.timezone()).isEqualTo("Europe/Berlin");
         assertThat(response.updatedAt()).isEqualTo(LATE_EVENING_UTC);
-        assertThat(service.getZoneId()).isEqualTo(ZoneId.of("Europe/Berlin"));
+        assertThat(service.getZoneId(USER)).isEqualTo(ZoneId.of("Europe/Berlin"));
     }
 
     private PreferencesService service(String timezone, Clock clock) {
-        UserPreferences preferences = new UserPreferences(timezone, 480, Instant.parse("2026-10-01T00:00:00Z"));
-        when(preferencesRepository.findById(UserPreferences.SINGLETON_ID)).thenReturn(Optional.of(preferences));
+        UserPreferences preferences = new UserPreferences(USER, timezone, 480, Instant.parse("2026-10-01T00:00:00Z"));
+        when(preferencesRepository.findById(USER)).thenReturn(Optional.of(preferences));
         return new PreferencesService(preferencesRepository, new PreferencesMapper(), clock);
     }
 }

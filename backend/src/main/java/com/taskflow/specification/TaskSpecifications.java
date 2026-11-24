@@ -12,6 +12,7 @@ import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Builds the database-level WHERE and ORDER BY clauses for task listing.
@@ -20,6 +21,14 @@ import java.util.List;
 public final class TaskSpecifications {
 
     private TaskSpecifications() {
+    }
+
+    /** Restricts every listing to one owner's tasks. Always combined with the user's filter, never optional. */
+    public static Specification<Task> ownedBy(UUID ownerId) {
+        if (ownerId == null) {
+            throw new IllegalArgumentException("ownerId is required");
+        }
+        return (root, query, cb) -> cb.equal(root.get("ownerId"), ownerId);
     }
 
     public static Specification<Task> withFilter(TaskFilter filter) {

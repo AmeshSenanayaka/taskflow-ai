@@ -18,6 +18,15 @@ spring:
     locations: classpath:db/migration
   jackson:
     default-property-inclusion: non_null
+  # Phase 3.0: every /api request must carry a Keycloak access token (see infrastructure/keycloak).
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Resolved lazily on the first request, so the backend starts even when Keycloak is not up yet.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8180/realms/taskflow}
+          # Tokens must be issued for this API (Keycloak's audience mapper on the taskflow-web client adds it).
+          audiences: ${KEYCLOAK_API_AUDIENCE:taskflow-api}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -38,8 +47,6 @@ taskflow:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   ai:
-    # Development-only identity while the app has no authentication (see README, "Known limitations").
-    dev-user-id: ${TASKFLOW_DEV_USER_ID:local-user}
     # Upper bound on LLM -> tool -> LLM round trips per user message.
     max-tool-round-trips: ${AI_MAX_TOOL_ROUND_TRIPS:8}
     memory:

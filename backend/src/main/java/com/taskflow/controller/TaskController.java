@@ -8,6 +8,7 @@ import com.taskflow.dto.response.PageResponse;
 import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.TaskService;
 import com.taskflow.specification.TaskFilter;
 import com.taskflow.specification.TaskSort;
@@ -47,9 +48,11 @@ import java.util.UUID;
 public class TaskController {
 
     private final TaskService taskService;
+    private final CurrentUserProvider currentUser;
 
-    public TaskController(TaskService taskService) {
+    public TaskController(TaskService taskService, CurrentUserProvider currentUser) {
         this.taskService = taskService;
+        this.currentUser = currentUser;
     }
 
     @PostMapping
@@ -61,7 +64,7 @@ public class TaskController {
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TaskResponse create(@Valid @RequestBody CreateTaskRequest request) {
-        return taskService.create(request);
+        return taskService.create(currentUser.userId(), request);
     }
 
     @GetMapping
@@ -103,18 +106,18 @@ public class TaskController {
     ) {
         TaskFilter filter = new TaskFilter(status, priority, dueDate, dueDateFrom, dueDateTo, search);
         TaskSort sort = new TaskSort(sortBy, sortDirection);
-        return taskService.list(filter, sort, page, size);
+        return taskService.list(currentUser.userId(), filter, sort, page, size);
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get a task by id")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Task found"),
-            @ApiResponse(responseCode = "404", description = "Task not found",
+            @ApiResponse(responseCode = "404", description = "Task not found (or owned by another user)",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TaskResponse getById(@PathVariable UUID id) {
-        return taskService.getById(id);
+        return taskService.getById(currentUser.userId(), id);
     }
 
     @PutMapping("/{id}")
@@ -123,11 +126,11 @@ public class TaskController {
             @ApiResponse(responseCode = "200", description = "Task updated"),
             @ApiResponse(responseCode = "400", description = "Validation error",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "Task not found",
+            @ApiResponse(responseCode = "404", description = "Task not found (or owned by another user)",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TaskResponse update(@PathVariable UUID id, @Valid @RequestBody UpdateTaskRequest request) {
-        return taskService.update(id, request);
+        return taskService.update(currentUser.userId(), id, request);
     }
 
     @PatchMapping("/{id}/status")
@@ -137,11 +140,11 @@ public class TaskController {
             @ApiResponse(responseCode = "200", description = "Status updated"),
             @ApiResponse(responseCode = "400", description = "Invalid status",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class))),
-            @ApiResponse(responseCode = "404", description = "Task not found",
+            @ApiResponse(responseCode = "404", description = "Task not found (or owned by another user)",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public TaskResponse updateStatus(@PathVariable UUID id, @Valid @RequestBody UpdateTaskStatusRequest request) {
-        return taskService.updateStatus(id, request.status());
+        return taskService.updateStatus(currentUser.userId(), id, request.status());
     }
 
     @DeleteMapping("/{id}")
@@ -149,10 +152,10 @@ public class TaskController {
     @Operation(summary = "Delete a task")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Task deleted"),
-            @ApiResponse(responseCode = "404", description = "Task not found",
+            @ApiResponse(responseCode = "404", description = "Task not found (or owned by another user)",
                     content = @Content(mediaType = "application/problem+json", schema = @Schema(implementation = ProblemDetail.class)))
     })
     public void delete(@PathVariable UUID id) {
-        taskService.delete(id);
+        taskService.delete(currentUser.userId(), id);
     }
 }

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 @Service
 @Transactional(readOnly = true)
@@ -20,17 +21,18 @@ public class DashboardService {
         this.preferencesService = preferencesService;
     }
 
-    public DashboardStatsResponse getStats() {
+    /** Statistics over one user's tasks, with "today" in that user's timezone. */
+    public DashboardStatsResponse getStats(UUID ownerId) {
         // "Today" depends on the user's timezone, not on the server's; the definition lives in one place.
-        LocalDate today = preferencesService.today();
+        LocalDate today = preferencesService.today(ownerId);
 
         return new DashboardStatsResponse(
-                taskRepository.count(),
-                taskRepository.countByStatus(TaskStatus.TODO),
-                taskRepository.countByStatus(TaskStatus.IN_PROGRESS),
-                taskRepository.countByStatus(TaskStatus.COMPLETED),
-                taskRepository.countOverdue(today),
-                taskRepository.countDueToday(today)
+                taskRepository.countByOwnerId(ownerId),
+                taskRepository.countByOwnerIdAndStatus(ownerId, TaskStatus.TODO),
+                taskRepository.countByOwnerIdAndStatus(ownerId, TaskStatus.IN_PROGRESS),
+                taskRepository.countByOwnerIdAndStatus(ownerId, TaskStatus.COMPLETED),
+                taskRepository.countOverdue(ownerId, today),
+                taskRepository.countDueToday(ownerId, today)
         );
     }
 }

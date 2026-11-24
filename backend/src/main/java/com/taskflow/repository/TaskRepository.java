@@ -13,26 +13,37 @@ import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Task persistence. Since Phase 3.0 every method the application uses takes the owner's id: a task that
+ * belongs to someone else is simply "not found". The unscoped methods inherited from {@link JpaRepository}
+ * ({@code findById}, {@code findAll}, {@code count}) remain for tests and must not be used by services.
+ */
 public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificationExecutor<Task> {
 
-    long countByStatus(TaskStatus status);
+    Optional<Task> findByIdAndOwnerId(UUID id, UUID ownerId);
 
-    /** Loads a task with a row lock ({@code SELECT ... FOR UPDATE}) for read-modify-write updates. */
+    long countByOwnerId(UUID ownerId);
+
+    long countByOwnerIdAndStatus(UUID ownerId, TaskStatus status);
+
+    /** Loads one of the owner's tasks with a row lock ({@code SELECT ... FOR UPDATE}) for read-modify-write updates. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT t FROM Task t WHERE t.id = :id")
-    Optional<Task> findByIdForUpdate(@Param("id") UUID id);
+    @Query("SELECT t FROM Task t WHERE t.id = :id AND t.ownerId = :ownerId")
+    Optional<Task> findByIdAndOwnerIdForUpdate(@Param("id") UUID id, @Param("ownerId") UUID ownerId);
 
     @Query("""
             SELECT COUNT(t) FROM Task t
-            WHERE t.status <> com.taskflow.enums.TaskStatus.COMPLETED
+            WHERE t.ownerId = :ownerId
+              AND t.status <> com.taskflow.enums.TaskStatus.COMPLETED
               AND t.dueDate < :today
             """)
-    long countOverdue(@Param("today") LocalDate today);
+    long countOverdue(@Param("ownerId") UUID ownerId, @Param("today") LocalDate today);
 
     @Query("""
             SELECT COUNT(t) FROM Task t
-            WHERE t.status <> com.taskflow.enums.TaskStatus.COMPLETED
+            WHERE t.ownerId = :ownerId
+              AND t.status <> com.taskflow.enums.TaskStatus.COMPLETED
               AND t.dueDate = :today
             """)
-    long countDueToday(@Param("today") LocalDate today);
+    long countDueToday(@Param("ownerId") UUID ownerId, @Param("today") LocalDate today);
 }

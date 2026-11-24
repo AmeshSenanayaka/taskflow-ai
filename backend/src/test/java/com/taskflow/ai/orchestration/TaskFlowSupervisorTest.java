@@ -3,6 +3,7 @@ package com.taskflow.ai.orchestration;
 import com.taskflow.ai.ScriptedChatModel;
 import com.taskflow.ai.agent.TaskFlowSupervisor;
 import com.taskflow.ai.config.SupervisorProperties;
+import com.taskflow.ai.conversation.ConversationRef;
 import com.taskflow.ai.dto.AgentCallInfo;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.dto.ToolCallInfo;
@@ -17,6 +18,7 @@ import com.taskflow.dto.response.PreferencesResponse;
 import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
@@ -34,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -69,6 +72,11 @@ class TaskFlowSupervisorTest {
     private DashboardService dashboardService;
     @Mock
     private PreferencesService preferencesService;
+    @Mock
+    private CurrentUserProvider currentUser;
+
+    private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
+    private static final UUID OTHER_USER = UUID.fromString("00000000-0000-0000-0000-000000000b0b");
 
     private final ScriptedChatModel model = new ScriptedChatModel();
     private TaskFlowSupervisor supervisor;
@@ -77,12 +85,13 @@ class TaskFlowSupervisorTest {
     @BeforeEach
     void setUp() {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        when(preferencesService.getZoneId()).thenReturn(ZONE);
-        when(preferencesService.get()).thenReturn(new PreferencesResponse(ZONE.getId(), 480, NOW));
+        when(currentUser.userId()).thenReturn(USER);
+        when(preferencesService.getZoneId(USER)).thenReturn(ZONE);
+        when(preferencesService.get(USER)).thenReturn(new PreferencesResponse(ZONE.getId(), 480, NOW));
 
-        TaskTools taskTools = new TaskTools(taskService, preferencesService);
-        TaskQueryTools queryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock);
-        AgentContextProvider context = new AgentContextProvider(preferencesService, clock);
+        TaskTools taskTools = new TaskTools(taskService, preferencesService, currentUser);
+        TaskQueryTools queryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock, currentUser);
+        AgentContextProvider context = new AgentContextProvider(preferencesService, clock, currentUser);
         SupervisorProperties properties = new SupervisorProperties(
                 3, 8, 20, SupervisorResponseStrategy.LAST, SupervisorContextStrategy.CHAT_MEMORY);
         TaskFlowAgentFactory factory = new TaskFlowAgentFactory(
@@ -95,13 +104,13 @@ class TaskFlowSupervisorTest {
 
     @Test
     void routesASummaryRequestToTheSummaryAgentAndReturnsItsAnswer() {
-        when(dashboardService.getStats()).thenReturn(new DashboardStatsResponse(20, 8, 5, 7, 2, 3));
+        when(dashboardService.getStats(USER)).thenReturn(new DashboardStatsResponse(20, 8, 5, 7, 2, 3));
         model.invokeAgent("SummaryAgent", "Summarise my progress")
                 .toolCall("getTaskStatistics", "{}")
                 .text("7 of 20 tasks completed, 2 overdue.")
                 .done("Summarised the user's progress.");
 
-        SupervisorChatResponse response = service.chat("conv-1", "Summarise my progress");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-1"), "Summarise my progress");
 
         assertThat(response.message()).isEqualTo("7 of 20 tasks completed, 2 overdue.");
         assertThat(response.dataChanged()).isFalse();
@@ -134,7 +143,7 @@ class TaskFlowSupervisorTest {
         UUID id = UUID.randomUUID();
         TaskResponse created = task(id, "Review the architecture document", TaskPriority.HIGH, TaskStatus.TODO,
                 LocalDate.parse("2026-11-09"));
-        when(taskService.create(any(CreateTaskRequest.class))).thenReturn(created);
+        when(taskService.create(eq(USER), any(CreateTaskRequest.class))).thenReturn(created);
         model.invokeAgent("TaskAgent", "Create a high-priority task to review the architecture document tomorrow")
                 .toolCall("createTask", """
                         {"title":"Review the architecture document","priority":"HIGH","dueDate":"2026-11-09"}
@@ -142,13 +151,13 @@ class TaskFlowSupervisorTest {
                 .text("Created \"Review the architecture document\" (HIGH), due 2026-11-09.")
                 .done("Created the task.");
 
-        SupervisorChatResponse response = service.chat("conv-2",
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-2"),
                 "Create a high-priority task to review the architecture document tomorrow");
 
         assertThat(response.message()).startsWith("Created \"Review the architecture document\"");
         assertThat(response.dataChanged()).isTrue();
         assertThat(response.execution().agents()).extracting(AgentCallInfo::name).containsExactly("TaskAgent");
-        verify(taskService).create(new CreateTaskRequest("Review the architecture document", null,
+        verify(taskService).create(USER, new CreateTaskRequest("Review the architecture document", null,
                 TaskPriority.HIGH, LocalDate.parse("2026-11-09")));
         // the TaskAgent has the read/write tools and the Phase 1 prompt plus the date context
         ChatRequest taskAgentRequest = model.requests().get(1);
@@ -162,20 +171,20 @@ class TaskFlowSupervisorTest {
     void taskAgentKeepsConversationMemoryAcrossSupervisorTurns() {
         UUID id = UUID.randomUUID();
         TaskResponse article = task(id, "Write the article", TaskPriority.MEDIUM, TaskStatus.TODO, null);
-        when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page(article));
-        when(taskService.patch(eq(id), any())).thenReturn(
+        when(taskService.list(eq(USER), any(), any(), anyInt(), anyInt())).thenReturn(page(article));
+        when(taskService.patch(eq(USER), eq(id), any())).thenReturn(
                 task(id, "Write the article", TaskPriority.LOW, TaskStatus.TODO, null));
         model.invokeAgent("TaskAgent", "Find my article task")
                 .toolCall("listTasks", "{\"search\":\"article\",\"page\":0,\"size\":10}")
                 .text("Found \"Write the article\" (MEDIUM).")
                 .done("Found the task.");
-        service.chat("conv-3", "Find my article task");
+        service.chat(conversation(USER, "conv-3"), "Find my article task");
 
         model.invokeAgent("TaskAgent", "Change its priority to LOW")
                 .toolCall("updateTask", "{\"taskId\":\"" + id + "\",\"priority\":\"LOW\"}")
                 .text("Changed the priority of \"Write the article\" to LOW.")
                 .done("Updated the priority.");
-        SupervisorChatResponse second = service.chat("conv-3", "Change its priority to LOW");
+        SupervisorChatResponse second = service.chat(conversation(USER, "conv-3"), "Change its priority to LOW");
 
         assertThat(second.message()).contains("LOW");
         assertThat(second.dataChanged()).isTrue();
@@ -192,8 +201,8 @@ class TaskFlowSupervisorTest {
 
     @Test
     void aRequestForTwoAgentsReturnsBothAnswersInTheOrderTheyRan() {
-        when(dashboardService.getStats()).thenReturn(new DashboardStatsResponse(20, 8, 5, 7, 2, 3));
-        when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page());
+        when(dashboardService.getStats(USER)).thenReturn(new DashboardStatsResponse(20, 8, 5, 7, 2, 3));
+        when(taskService.list(eq(USER), any(), any(), anyInt(), anyInt())).thenReturn(page());
         model.invokeAgent("SummaryAgent", "Summarise my week")
                 .toolCall("getTaskStatistics", "{}")
                 .text("7 of 20 tasks completed, 2 overdue.")
@@ -202,7 +211,7 @@ class TaskFlowSupervisorTest {
                 .text("Plan for 2026-11-09: no open tasks to schedule.")
                 .done("Summarised the week and planned tomorrow.");
 
-        SupervisorChatResponse response = service.chat("conv-9", "Summarise my week and then plan tomorrow");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-9"), "Summarise my week and then plan tomorrow");
 
         // Neither answer is dropped and neither is re-told by the planner.
         assertThat(response.message()).isEqualTo(
@@ -222,27 +231,27 @@ class TaskFlowSupervisorTest {
 
     @Test
     void analyticalAgentsCannotChangeTasks() {
-        when(taskService.list(any(), any(), anyInt(), anyInt())).thenReturn(page());
+        when(taskService.list(eq(USER), any(), any(), anyInt(), anyInt())).thenReturn(page());
         model.invokeAgent("PriorityAgent", "What should I focus on?")
                 .toolCall("findTasks", "{\"statuses\":[\"TODO\",\"IN_PROGRESS\"]}")
                 .text("You have no open tasks.")
                 .done("Nothing to prioritise.");
 
-        SupervisorChatResponse response = service.chat("conv-4", "What should I focus on?");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-4"), "What should I focus on?");
 
         assertThat(response.message()).isEqualTo("You have no open tasks.");
         assertThat(ScriptedChatModel.toolNames(model.requests().get(1)))
                 .doesNotContain("createTask", "updateTask", "updateTaskStatus");
-        verify(taskService, never()).create(any());
-        verify(taskService, never()).update(any(), any());
-        verify(taskService, never()).patch(any(), any());
+        verify(taskService, never()).create(any(), any());
+        verify(taskService, never()).update(any(), any(), any());
+        verify(taskService, never()).patch(any(), any(), any());
     }
 
     @Test
     void plannerCanAnswerDirectlyWithoutCallingAnyAgent() {
         model.done("Hello! I can manage, prioritise, plan and summarise your tasks.");
 
-        SupervisorChatResponse response = service.chat("conv-5", "Hello");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-5"), "Hello");
 
         assertThat(response.message()).isEqualTo("Hello! I can manage, prioritise, plan and summarise your tasks.");
         assertThat(response.execution().agents()).isEmpty();
@@ -252,13 +261,13 @@ class TaskFlowSupervisorTest {
 
     @Test
     void toolErrorsAreExplainedToTheAgentNotThrownToTheUser() {
-        when(dashboardService.getStats()).thenThrow(new IllegalStateException("connection to db-host refused"));
+        when(dashboardService.getStats(USER)).thenThrow(new IllegalStateException("connection to db-host refused"));
         model.invokeAgent("SummaryAgent", "Summarise")
                 .toolCall("getTaskStatistics", "{}")
                 .text("I could not load the statistics right now.")
                 .done("Statistics unavailable.");
 
-        SupervisorChatResponse response = service.chat("conv-6", "Summarise");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-6"), "Summarise");
 
         assertThat(response.message()).isEqualTo("I could not load the statistics right now.");
         String toolResult = ScriptedChatModel.lastToolResult(model.requests().get(2)).orElseThrow();
@@ -268,13 +277,13 @@ class TaskFlowSupervisorTest {
 
     @Test
     void stopsAfterTheConfiguredNumberOfAgentInvocations() {
-        when(dashboardService.getStats()).thenReturn(new DashboardStatsResponse(1, 1, 0, 0, 0, 0));
+        when(dashboardService.getStats(USER)).thenReturn(new DashboardStatsResponse(1, 1, 0, 0, 0, 0));
         for (int i = 0; i < 3; i++) {
             model.invokeAgent("SummaryAgent", "again").text("Summary " + i);
         }
         model.done("Finished");
 
-        SupervisorChatResponse response = service.chat("conv-7", "Loop forever");
+        SupervisorChatResponse response = service.chat(conversation(USER, "conv-7"), "Loop forever");
 
         // max-agent-invocations is 3 in this test: the fourth planner call never happens.
         assertThat(response.execution().agents()).hasSize(3);
@@ -286,7 +295,7 @@ class TaskFlowSupervisorTest {
     void providerFailuresAreTranslatedIntoUserSafeErrors() {
         model.failWith(new RateLimitException("429 Too Many Requests: { \"error\": \"rate limited\", \"key\": \"sk-secret\" }"));
 
-        assertThatThrownBy(() -> service.chat("conv-8", "Summarise my progress"))
+        assertThatThrownBy(() -> service.chat(conversation(USER, "conv-8"), "Summarise my progress"))
                 .isInstanceOfSatisfying(AiServiceException.class, error -> {
                     assertThat(error.status()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
                     assertThat(error.retryable()).isTrue();
@@ -300,6 +309,33 @@ class TaskFlowSupervisorTest {
                 .containsExactly("TaskAgent", "PriorityAgent", "PlanningAgent", "SummaryAgent");
         assertThat(service.agents()).filteredOn("canModifyTasks", true).extracting("name").containsExactly("TaskAgent");
         assertThat(service.agents()).allSatisfy(agent -> assertThat(agent.description()).doesNotContain("\n"));
+    }
+
+    @Test
+    void chatMemoryIsKeyedByOwnerSoTwoUsersNeverShareIt() {
+        TaskResponse article = task(UUID.randomUUID(), "Write the article", TaskPriority.MEDIUM, TaskStatus.TODO, null);
+        when(taskService.list(eq(USER), any(), any(), anyInt(), anyInt())).thenReturn(page(article));
+        model.invokeAgent("TaskAgent", "Find my article task")
+                .toolCall("listTasks", "{\"search\":\"article\",\"page\":0,\"size\":10}")
+                .text("Found \"Write the article\" (MEDIUM).")
+                .done("Found the task.");
+        service.chat(conversation(USER, "shared-id"), "Find my article task");
+
+        // Same conversation id, different owner (ownership is normally rejected earlier; this is the second line of defence).
+        model.invokeAgent("TaskAgent", "What did I just ask?")
+                .text("I don't have any earlier messages in this conversation.")
+                .done("Answered.");
+        service.chat(conversation(OTHER_USER, "shared-id"), "What did I just ask?");
+
+        ChatRequest otherUsersTaskAgentRequest = model.requests().get(5);
+        assertThat(otherUsersTaskAgentRequest.messages().stream().map(Object::toString).toList())
+                .noneMatch(text -> text.contains("Find my article task"))
+                .noneMatch(text -> text.contains("Write the article"));
+    }
+
+    /** A conversation as ConversationService would return it after the ownership check. */
+    private static ConversationRef conversation(UUID owner, String name) {
+        return new ConversationRef(owner, UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static TaskResponse task(UUID id, String title, TaskPriority priority, TaskStatus status, LocalDate dueDate) {

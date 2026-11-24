@@ -1,10 +1,15 @@
 import { apiRequest } from "@/lib/api/client";
-import type { AgentDescriptor, AiStatus, ChatRequest, ChatResponse } from "@/types/ai";
+import type { AgentDescriptor, AiStatus, ChatRequest, ChatResponse, ConversationResponse } from "@/types/ai";
 
 /** All LLM traffic stays in the backend; the browser only ever talks to these endpoints. */
 export const aiApi = {
   status(signal?: AbortSignal): Promise<AiStatus> {
     return apiRequest<AiStatus>("/api/ai/status", { signal });
+  },
+
+  /** Phase 3.0: the server issues conversation ids and records which user owns each one. */
+  startConversation(): Promise<ConversationResponse> {
+    return apiRequest<ConversationResponse>("/api/ai/conversations", { method: "POST" });
   },
 
   /** Phase 1: one message to the single TaskAgent. */

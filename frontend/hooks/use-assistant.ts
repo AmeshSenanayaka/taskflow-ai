@@ -134,17 +134,22 @@ export function useAssistant() {
       setMessages((current) => [...current.filter((item) => !item.failed), userMessage]);
       setIsSending(true);
 
-      // The backend keeps chat memory per conversationId, so the browser owns the id and reuses it
-      // for every message until the user starts a new conversation.
-      const id = conversationId ?? newId();
-      if (!conversationId) setConversationId(id);
+      // The backend keeps chat memory per conversationId. Since Phase 3.0 the server issues the id (and records
+      // who owns it); the browser asks for one on the first message and reuses it until a new conversation starts.
       try {
+        let id = conversationId;
+        if (!id) {
+          id = (await aiApi.startConversation()).conversationId;
+          setConversationId(id);
+        }
         const request = { conversationId: id, message };
         const response: ChatResponse = mode === "supervisor" ? await aiApi.supervise(request) : await aiApi.chat(request);
         applyResponse(response, mode);
       } catch (caught) {
         setError(getErrorMessage(caught));
         setMessages((current) => current.map((item) => (item.id === userMessage.id ? { ...item, failed: true } : item)));
+        // 404: the conversation is unknown to the server or belongs to another user; a retry starts a new one.
+        if (caught instanceof ApiError && caught.isNotFound) setConversationId(null);
         // A supervisor turn can fail after TaskAgent already changed data (a later LLM call timing out), and the
         // error response carries no dataChanged flag. Refresh so the lists show what was saved before a retry.
         if (mode === "supervisor") invalidate();

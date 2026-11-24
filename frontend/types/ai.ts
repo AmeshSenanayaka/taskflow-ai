@@ -5,7 +5,12 @@ export type ChatStatus = "COMPLETED" | "PENDING_CONFIRMATION";
 /** Which backend entry point answers: the single Phase 1 TaskAgent or the Phase 2 supervisor. */
 export type AssistantMode = "agent" | "supervisor";
 
-/** POST /api/ai/chat and /api/ai/supervisor/chat — the browser generates the conversationId per conversation. */
+/** POST /api/ai/conversations — a server-issued conversation id owned by the signed-in user (Phase 3.0). */
+export interface ConversationResponse {
+  conversationId: string;
+}
+
+/** POST /api/ai/chat and /api/ai/supervisor/chat — conversationId comes from POST /api/ai/conversations. */
 export interface ChatRequest {
   conversationId: string;
   message: string;
@@ -53,11 +58,6 @@ export interface ChatResponse {
   pendingConfirmation?: PendingConfirmation | null;
   dataChanged?: boolean;
   execution?: AgentExecutionInfo;
-}
-
-export interface ConversationResponse {
-  conversationId: string;
-  createdAt: string;
 }
 
 export interface AiStatus {

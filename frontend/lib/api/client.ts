@@ -1,3 +1,4 @@
+import { getAccessToken, login } from "@/lib/auth/oidc";
 import type { ProblemDetail } from "@/types/api";
 
 /**
@@ -58,6 +59,7 @@ interface RequestOptions {
 
 /**
  * Single entry point for all HTTP calls to the backend.
+ * - Sends the signed-in user's access token (Phase 3.0); the backend derives the user from it, never from the body
  * - Serialises the body as JSON
  * - Parses JSON responses (204 No Content resolves to undefined)
  * - Converts error responses into ApiError instances
@@ -65,11 +67,16 @@ interface RequestOptions {
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, signal } = options;
 
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal,
       cache: "no-store",
@@ -77,6 +84,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError(0, undefined, "Cannot reach the TaskFlow backend. Is it running?");
+  }
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    // The session ended (expired or signed out elsewhere): sign in again and come back to this page.
+    void login();
   }
 
   if (!response.ok) {

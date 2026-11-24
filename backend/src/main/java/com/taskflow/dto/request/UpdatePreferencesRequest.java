@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-@Schema(description = "Payload for updating the single-user preferences")
+@Schema(description = "Payload for updating the caller's preferences")
 public record UpdatePreferencesRequest(
 
         @Schema(description = "IANA timezone identifier", example = "Asia/Colombo")

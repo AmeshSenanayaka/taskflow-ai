@@ -1,9 +1,10 @@
-# TaskFlow AI — Phase 2
+# TaskFlow AI — Phase 3.1A
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
-**AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1) and, new in Phase 2, a
-**multi-agent system** in which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`,
-`PlanningAgent` or `SummaryAgent`.
+**AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system**
+in which a `TaskFlowSupervisor` routes each request to `TaskAgent`, `PriorityAgent`, `PlanningAgent` or
+`SummaryAgent` (Phase 2), and, new in Phase 3.1A, an **evaluation harness** that measures that system with a
+version-controlled scenario dataset, a scripted regression suite and an opt-in live-model baseline.
 
 This repository accompanies the Medium article series
 **"Building Agentic AI Applications with Java: From Spring Boot to Multi-Agent Systems Using LangChain4j"**.
@@ -12,8 +13,9 @@ This repository accompanies the Medium article series
 |---|---|---|
 | Phase 0 | Traditional full-stack task manager | ✅ Implemented |
 | Phase 1 | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` | ✅ Implemented |
-| **Phase 2** | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` (this repository state) | ✅ Implemented |
-| Phase 3 | Cost-aware routing: Java rules vs Jev vs cheap model vs LLM supervisor, measured | Planned |
+| Phase 2 | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | ✅ Implemented |
+| **Phase 3.1A** | Evaluation harness: scenario dataset, scripted regression suite, opt-in live-model baseline, execution traces, reproducible reports (this repository state) | ✅ Implemented |
+| Phase 3.1B–3.7 | Reliable and governed agentic AI: quality rubrics and LLM judge, identity and authorization, guardrails, shared state and persistent memory, Critic Agent, Governor, observability | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -86,8 +88,27 @@ Phase 2 (see [`docs/phase-2/screenshots`](docs/phase-2/screenshots)):
 - Today's date, weekday, timezone and daily available minutes are injected into every agent's system message at call
   time, so "tomorrow" and "overdue" are resolved correctly
 - `POST /api/ai/supervisor/chat` returns the answer plus the agents invoked, the tools called, the number of LLM calls
-  and the token usage, so routing cost is visible (the input for the Phase 3 comparison)
+  and the token usage, so routing cost is visible (measured per scenario by the Phase 3.1A evaluation harness)
 - The UI has a **Supervisor / TaskAgent** switch; "Execution details" under each reply shows the route taken
+
+**Phase 3.1A — evaluation harness and live baseline**
+
+- A version-controlled **evaluation dataset** (`backend/src/test/resources/eval/dataset/`): 51 scenarios (47 executable) with a
+  database fixture, user turns, the expected final database state, required and prohibited tool behaviour, routing
+  expectations and deterministic answer checks; 4 authorization scenarios are marked `NOT_APPLICABLE` until the
+  application has user identity, and are in no pass-rate denominator
+- A **scripted regression suite** (`ScriptedRegressionEvalTest`, runs in every build, no API key): the real Spring
+  wiring, supervisor loop, tools and PostgreSQL with a scripted model, verifying the tool contracts, the database
+  effects, fixture isolation and the harness itself. Its results say nothing about a model
+- An **opt-in live-model evaluation** (`LiveModelEvalTest`, `mvn test -Plive-eval`): every executable scenario runs
+  through the real `MultiAgentService` and the configured OpenAI model, 3 times by default, each repetition from a
+  freshly reset database and a new conversation, with a fixed `Clock` and the fixture's timezone
+- **Structured execution traces**: `AgentRunRecorder` now records, per request, every agent invocation, tool execution
+  (caller, sanitized arguments, sanitized result, status, duration) and LLM call (tokens, duration, model name), and
+  hands the trace to `ExecutionTraceListener` beans; attribution the framework does not expose is `UNKNOWN`
+- **Reports** in JSON and Markdown under `backend/target/eval-reports/<suite>/`, stamped with the Git commit, model
+  identifier and generation settings, SHA-256 hashes of the prompt templates, the dataset and the configuration, the
+  fixed clock and timezones, the repetition count and the runner version; passes are reported with their sample sizes
 
 ---
 
@@ -606,6 +627,33 @@ order while the real LangChain4j supervisor loop, the real tools and (in the int
 
 To try the agents for real, start the backend with `OPENAI_API_KEY` set and use the curl commands in section 12.
 
+**Evaluation harness (Phase 3.1A).** Two suites read the same scenario dataset and must never be confused:
+
+| Suite | Command | Model | Cost | Report |
+|---|---|---|---|---|
+| Scripted regression (`ScriptedRegressionEvalTest`, tag `eval-regression`) | `mvn test` (part of every build) or `mvn test -Dtest.groups=eval-regression` | `ScriptedChatModel` replaying fixed answers | none | `backend/target/eval-reports/scripted-regression/` |
+| Live-model evaluation (`LiveModelEvalTest`, tag `live-eval`) | `OPENAI_API_KEY=sk-... mvn test -Plive-eval` | the configured OpenAI model (`OPENAI_MODEL_NAME`, default `gpt-4o-mini`) | paid API calls | `backend/target/eval-reports/live/` |
+
+The scripted suite is a regression test of the application wiring, the tool contracts, the database effects and the
+harness itself; its pass rate is not a measurement of any model. The live suite is the measurement: it is excluded
+from every ordinary build and from CI by the Surefire configuration, and only the `live-eval` Maven profile runs it.
+Live options are JVM system properties:
+
+```bash
+cd backend
+# 3 repetitions per scenario (default), all executable scenarios
+OPENAI_API_KEY=sk-... mvn test -Plive-eval
+# 5 repetitions, only two scenarios and one category, reports elsewhere
+OPENAI_API_KEY=sk-... mvn test -Plive-eval \
+  -Dtaskflow.eval.repetitions=5 \
+  -Dtaskflow.eval.scenarios=CREATE-01,UPDATE-06,DAILY_PLANNING \
+  -Dtaskflow.eval.report-dir=../docs/phase-3/eval-reports
+```
+
+Each report is written as `report.json` (complete) and `report.md` (readable) into a `<timestamp>-<commit>/` directory
+plus a `latest/` copy. See [`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md) for the dataset schema,
+the assertions and how to read a report.
+
 **Frontend** (Vitest + Testing Library):
 
 ```bash
@@ -637,8 +685,8 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 - **The two modes do not share memory.** The Phase 1 TaskAgent and the supervisor's TaskAgent are separate
   instances, so the UI starts a new conversation when you switch mode.
 - **The supervisor costs more than one agent.** Every request pays at least two extra LLM calls (planner in, planner
-  "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage` so this can
-  be measured; Phase 3 is about reducing it.
+  "done"); a two-agent request typically makes 6–8 calls. The response reports `llmCalls` and `tokenUsage`, and the
+  evaluation harness records them per scenario, so any future optimisation can be measured against the baseline.
 - **Routing is probabilistic.** The planner is an LLM; an ambiguous message may go to a less suitable agent. Each
   specialist states what it did, and only `TaskAgent` can change data, so a wrong route costs time, not data.
 - **Time estimates in plans are assumptions.** Tasks have no duration field, so `PlanningAgent` guesses modest durations
@@ -661,9 +709,31 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
   and reports agents, tools, LLM calls and tokens per request. See
   [`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md). Still open: a confirmation workflow for
   deletion, guardrails, persistent memory, streaming.
-- **Phase 3 — Cost-aware routing.** Compare a Java rules router, Jev (TypeSafe AI's typed decision model), a cheaper
-  model and the LLM supervisor on a fixed benchmark: routing accuracy, task success, tokens, cost and latency.
+- **Phase 3 — Building Reliable and Governed Agentic AI Systems.** Phase 2 showed that a supervisor can route between
+  agents; Phase 3 makes that system trustworthy enough to run for real users: measurable, bounded, identity-aware and
+  observable. The milestones, in order:
+  - **3.1 Evaluations.** *3.1A (done):* a version-controlled scenario dataset, a scripted regression suite, an opt-in
+    repeated live-model evaluation with isolated fixtures and a fixed clock, structured execution traces, deterministic
+    assertions, and JSON/Markdown reports with reproducibility metadata. See
+    [`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md). *3.1B:* qualitative rubrics, an LLM-as-judge
+    for the criteria the deterministic checks cannot decide, and evaluation reporting in CI.
+  - **3.2 Identity and authorization.** Authenticated users, task ownership, and tool calls that always act for the
+    authenticated caller. The `NOT_APPLICABLE` authorization scenarios of the dataset become executable here.
+  - **3.3 Guardrails.** Input and output guardrails on the agents (prompt-injection handling, unsupported operations,
+    scope), confirmation workflows for destructive actions such as deletion.
+  - **3.4 Shared state and persistent memory.** Conversation memory that survives restarts, is bound to an identity,
+    evicted by policy and isolated between users; shared state between agents where a request needs it.
+  - **3.5 Critic Agent.** A reviewer that checks an answer against the data and the request before it reaches the user.
+  - **3.6 Governor.** Budgets and policies enforced in code: invocation, tool and token limits per request and per user,
+    with honest degradation when a budget is hit.
+  - **3.7 Observability.** The execution traces exported to a tracing backend, with metrics for routing, cost and
+    latency in production.
+
+  Routing accuracy and token efficiency stay in the dataset as **evaluation metrics**: every milestone is measured
+  against the 3.1A baseline, and a future cost-aware routing experiment, if it is worth doing, will be compared the
+  same way rather than implemented first.
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),
-[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md) and
-[`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md) for the design decisions behind each phase.
+[`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md),
+[`docs/phase-2/IMPLEMENTATION.md`](docs/phase-2/IMPLEMENTATION.md) and
+[`docs/phase-3/IMPLEMENTATION.md`](docs/phase-3/IMPLEMENTATION.md) for the design decisions behind each phase.

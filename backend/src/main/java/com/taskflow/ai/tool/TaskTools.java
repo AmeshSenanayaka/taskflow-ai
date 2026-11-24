@@ -8,6 +8,7 @@ import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
 import com.taskflow.exception.TaskNotFoundException;
+import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
 import com.taskflow.specification.TaskFilter;
@@ -18,6 +19,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -27,6 +29,13 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+/**
+ * Read/write tools of the {@code TaskAgent}.
+ * <p>
+ * Phase 3.0 (trusted identity): no tool takes a user id. The model supplies task ids and field values only;
+ * the owner is always the authenticated caller, read from {@link CurrentUserProvider}. A task id that belongs
+ * to another user is reported as "not found", exactly like an id that does not exist.
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -34,6 +43,7 @@ public class TaskTools {
 
     private final TaskService taskService;
     private final PreferencesService preferencesService;
+    private final CurrentUserProvider currentUser;
 
     @Tool("""
         Get today's date in the user's configured timezone, as YYYY-MM-DD, together with that timezone.
@@ -41,9 +51,12 @@ public class TaskTools {
         into absolute dates. Never guess the current date.
         """)
     public TodayResponse getToday() {
-        return guarded("getToday", () -> new TodayResponse(
-                preferencesService.today().toString(),
-                preferencesService.getZoneId().getId()));
+        return guarded("getToday", () -> {
+            UUID userId = currentUser.userId();
+            return new TodayResponse(
+                    preferencesService.today(userId).toString(),
+                    preferencesService.getZoneId(userId).getId());
+        });
     }
 
     /** Tool result for {@link #getToday()}. */
@@ -68,7 +81,7 @@ public class TaskTools {
                     parseEnum(TaskPriority.class, priority, TaskPriority.MEDIUM),
                     parseDate(dueDate)
             );
-            return taskService.create(request);
+            return taskService.create(currentUser.userId(), request);
         });
     }
 
@@ -80,7 +93,7 @@ public class TaskTools {
             if (taskId == null) {
                 throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
             }
-            return taskService.getById(taskId);
+            return taskService.getById(currentUser.userId(), taskId);
         });
     }
 
@@ -113,7 +126,7 @@ public class TaskTools {
             LocalDate newDueDate = clearDueDate ? null : parseDate(dueDate);
             // The merge with the current values runs inside TaskService.patch, in one transaction on a locked row,
             // so a concurrent edit of another field is not overwritten with a stale value.
-            return taskService.patch(taskId, current -> new UpdateTaskRequest(
+            return taskService.patch(currentUser.userId(), taskId, current -> new UpdateTaskRequest(
                     title == null ? current.title() : title.trim(),
                     description == null ? current.description() : description,
                     newPriority == null ? current.priority() : newPriority,
@@ -137,7 +150,7 @@ public class TaskTools {
             if (newStatus == null) {
                 throw new ToolExecutionException("Invalid status '" + status + "'. Use TODO, IN_PROGRESS or COMPLETED.");
             }
-            return taskService.updateStatus(taskId, newStatus);
+            return taskService.updateStatus(currentUser.userId(), taskId, newStatus);
         });
     }
 
@@ -191,6 +204,7 @@ public class TaskTools {
             );
             TaskSort sort = createTaskSort(sortBy, direction);
             return taskService.list(
+                    currentUser.userId(),
                     filter,
                     sort,
                     Math.max(0, page),
@@ -234,6 +248,11 @@ public class TaskTools {
                     .collect(Collectors.joining("; "));
             log.info("Tool {} failed validation: {}", toolName, problems);
             throw new ToolExecutionException("Validation failed: " + problems + ". Fix the arguments and try again.", ex);
+        } catch (AuthenticationException ex) {
+            // Fail closed: without a caller there is no owner to scope the data to, so nothing is read or written.
+            log.error("Tool {} ran without an authenticated user", toolName, ex);
+            throw new ToolExecutionException("This request has no signed-in user, so no task data can be accessed. "
+                    + "Tell the user to sign in again.", ex);
         } catch (IllegalArgumentException ex) {
             log.info("Tool {} received a bad argument: {}", toolName, ex.getMessage());
             throw new ToolExecutionException("Invalid argument: " + ex.getMessage(), ex);
