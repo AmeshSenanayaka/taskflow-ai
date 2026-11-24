@@ -19,6 +19,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * A {@link ChatModel} test double that replays scripted answers in order, so the agent loops
@@ -48,6 +49,19 @@ public class ScriptedChatModel implements ChatModel {
                 .id("call-" + requests.size())
                 .name(toolName)
                 .arguments(argumentsJson)
+                .build())));
+        return this;
+    }
+
+    /**
+     * Next call asks for a tool execution whose arguments are computed when the call happens, so they can refer to
+     * data an earlier step created (used by the evaluation harness).
+     */
+    public ScriptedChatModel toolCall(String toolName, Supplier<String> argumentsJson) {
+        script.add(request -> response(AiMessage.from(ToolExecutionRequest.builder()
+                .id("call-" + requests.size())
+                .name(toolName)
+                .arguments(argumentsJson.get())
                 .build())));
         return this;
     }

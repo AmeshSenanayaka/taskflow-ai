@@ -1,0 +1,38 @@
+[
+  {
+    "id": "M01",
+    "title": "A follow-up turn ('its') resolves against the previous turn",
+    "category": "MEMORY",
+    "turns": [
+      "Create a task called Prepare slides for Friday's demo",
+      "Change its priority to high"
+    ],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Create a task called Prepare slides for Friday's demo" },
+      { "toolCall": "createTask", "arguments": { "title": "Prepare slides for Friday's demo" } },
+      { "text": "Created \"Prepare slides for Friday's demo\" (MEDIUM)." },
+      { "done": "Created the task." },
+      { "invokeAgent": "TaskAgent", "request": "Change its priority to high" },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${title:slides}", "priority": "HIGH" } },
+      { "text": "Changed the priority of \"Prepare slides for Friday's demo\" to HIGH." },
+      { "done": "Updated the priority." }
+    ],
+    "expect": {
+      "dataChanged": true,
+      "tasks": [ { "titleContains": "slides", "priority": "HIGH" } ],
+      "taskCount": { "alice": 1 }
+    }
+  },
+  {
+    "id": "M02",
+    "title": "Conversation memory survives a backend restart",
+    "category": "MEMORY",
+    "notApplicable": { "until": "3.4", "reason": "chat memory is kept in process and is lost on restart; persistent memory arrives in Phase 3.4" }
+  },
+  {
+    "id": "M03",
+    "title": "A rejected answer is not stored as conversation history",
+    "category": "MEMORY",
+    "notApplicable": { "until": "3.4", "reason": "needs output validation (3.3) and staged memory commits (3.4)" }
+  }
+]

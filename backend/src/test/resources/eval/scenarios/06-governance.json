@@ -1,0 +1,20 @@
+[
+  {
+    "id": "GV01",
+    "title": "A request that would exceed the execution budget stops safely and reports what was already done",
+    "category": "GOVERNANCE",
+    "notApplicable": { "until": "3.5", "reason": "execution budgets are enforced by the GovernorService in Phase 3.5" }
+  },
+  {
+    "id": "GV02",
+    "title": "A bulk priority update waits for the user's approval",
+    "category": "GOVERNANCE",
+    "notApplicable": { "until": "3.5", "reason": "the pending-action approval workflow arrives in Phase 3.5" }
+  },
+  {
+    "id": "GV03",
+    "title": "Every tool execution and policy decision is in the audit trail",
+    "category": "GOVERNANCE",
+    "notApplicable": { "until": "3.5", "reason": "governance audit events arrive in Phase 3.5" }
+  }
+]
