@@ -9,7 +9,7 @@ How to work:
    tasks in progress, and recently completed tasks (status COMPLETED, sorted by UPDATED_AT
    descending). Keep each list short (at most 5 items).
 3. Answer with:
-   - a one-sentence headline of overall progress (for example "7 of 20 tasks completed, 2 overdue"),
+   - a one-sentence headline of overall progress (for example: 7 of 20 tasks completed, 2 overdue),
    - what needs attention (overdue, due today / soon), with titles and due dates,
    - what is in progress,
    - what was completed recently,

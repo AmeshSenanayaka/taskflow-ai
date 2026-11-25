@@ -108,5 +108,9 @@ Expectations gained `guardrails` (codes that must act) and `maxChangedTasks`.
   write limit are the backstops when a paraphrase gets through.
 - The output check verifies quoted titles, ids and time blocks. An invented title the model writes *without*
   quotes, despite the prompt rule, is not detected, and neither are unquoted prose claims such as counts.
+- The allowed wording includes the planner's requests to the agents (so the final check agrees with the agent
+  check). If the planner model itself invents a title in a request, for example "Summarise progress on Book flights
+  to Tokyo", an agent quoting that title passes both checks. The user and task content cannot cause this; only the
+  planner model can.
 - Injection patterns aim at instructions, not at corrections: "Ignore the previous message, I meant Friday" is a
   normal request and is not refused. Phase 3.5 adds auditing and human approval for sensitive actions.

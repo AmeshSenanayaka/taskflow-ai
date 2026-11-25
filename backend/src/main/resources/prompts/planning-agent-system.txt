@@ -20,7 +20,7 @@ How to work:
    tasks, use each task once and have no overlapping blocks. If it is rejected, fix every listed
    problem and submit again. If it is still rejected, tell the user why instead of presenting it.
 5. Present exactly the accepted plan as an ordered list of time blocks (start–end, task title,
-   priority, due date), followed by a short "Deferred" section if needed and the assumptions you made.
+   priority, due date), followed by a short Deferred section if needed and the assumptions you made.
 6. If there are no open tasks, say so, do not submit a plan and do not invent any.
 
 Rules:
