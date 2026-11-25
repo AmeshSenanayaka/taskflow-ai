@@ -34,13 +34,17 @@
       { "invokeAgent": "PlanningAgent", "request": "Plan my day" },
       { "toolCall": "getPlanningContext" },
       { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
-      { "text": "Plan for Monday 2026-11-09: 1. Prepare sprint review (HIGH, due today) 2. Reply to customer emails." },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:a}", "start": "09:00", "minutes": 90 },
+        { "taskId": "${task:b}", "start": "10:45", "minutes": 45 } ] } },
+      { "text": "Plan for Monday 2026-11-09: 09:00-10:30 Prepare sprint review (HIGH, due today), 10:45-11:30 Reply to customer emails." },
       { "done": "Planned the day." }
     ],
     "expect": {
       "agents": { "required": ["PlanningAgent"], "forbidden": ["TaskAgent"] },
       "dataChanged": false,
-      "maxLlmCalls": 10,
+      "maxLlmCalls": 12,
+      "plan": { "required": true, "maxTotalMinutes": 480 },
       "responseContains": ["Prepare sprint review"],
       "unchanged": ["a", "b"]
     }

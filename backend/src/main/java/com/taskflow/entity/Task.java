@@ -59,6 +59,10 @@ public class Task {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    /** Optional estimate of the work in minutes (1-1440), used for planning. */
+    @Column(name = "estimated_minutes")
+    private Integer estimatedMinutes;
+
     /**
      * @param ownerId the id of the user who owns the task (from the authenticated caller, never from input).
      * @param dueDate the calendar day the task is due, or null. It is a {@link LocalDate} on purpose: a deadline

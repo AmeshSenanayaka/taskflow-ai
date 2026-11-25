@@ -16,6 +16,13 @@ export const taskFormSchema = z.object({
   dueDate: z
     .string()
     .refine((value) => value === "" || ISO_DATE.test(value), "Enter a valid date"),
+  estimatedMinutes: z
+    .string()
+    .trim()
+    .refine(
+      (value) => value === "" || (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 1440),
+      "Enter minutes between 1 and 1440",
+    ),
 });
 
 export type TaskFormValues = z.infer<typeof taskFormSchema>;
@@ -26,4 +33,5 @@ export const defaultTaskFormValues: TaskFormValues = {
   priority: "MEDIUM",
   status: "TODO",
   dueDate: "",
+  estimatedMinutes: "",
 };

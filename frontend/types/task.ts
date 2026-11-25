@@ -25,6 +25,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   completedAt?: string | null;
+  /** Estimated minutes of work (1-1440), Phase 3.2. */
+  estimatedMinutes?: number | null;
 }
 
 /** Matches CreateTaskRequest. */
@@ -33,6 +35,7 @@ export interface CreateTaskRequest {
   description?: string | null;
   priority?: TaskPriority;
   dueDate?: string | null;
+  estimatedMinutes?: number | null;
 }
 
 /** Matches UpdateTaskRequest (PUT: every field is replaced). */
@@ -42,6 +45,7 @@ export interface UpdateTaskRequest {
   priority: TaskPriority;
   status: TaskStatus;
   dueDate?: string | null;
+  estimatedMinutes?: number | null;
 }
 
 /** Query parameters accepted by GET /api/tasks. */

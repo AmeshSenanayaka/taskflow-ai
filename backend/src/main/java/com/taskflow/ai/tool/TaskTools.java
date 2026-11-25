@@ -8,6 +8,7 @@ import com.taskflow.dto.response.TaskResponse;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
 import com.taskflow.exception.TaskNotFoundException;
+import com.taskflow.rules.RuleViolationException;
 import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
@@ -64,12 +65,13 @@ public class TaskTools {
     }
 
     @MutatesTasks
-    @Tool("Create a new task with a title, description, priority and due date")
+    @Tool("Create a new task with a title, description, priority, due date and an optional estimate in minutes")
     public TaskResponse createTask(
             @P("Task title") String title,
             @P(value = "Task description", required = false) String description,
             @P(value = "Priority: LOW, MEDIUM or HIGH (defaults to MEDIUM)", required = false) String priority,
-            @P(value = "Due date in YYYY-MM-DD format, or null", required = false) String dueDate
+            @P(value = "Due date in YYYY-MM-DD format, or null", required = false) String dueDate,
+            @P(value = "Estimated minutes of work, 1-1440, or null if unknown", required = false) Integer estimatedMinutes
     ) {
         return guarded("createTask", () -> {
             if (title == null || title.isBlank()) {
@@ -79,7 +81,8 @@ public class TaskTools {
                     title.trim(),
                     description,
                     parseEnum(TaskPriority.class, priority, TaskPriority.MEDIUM),
-                    parseDate(dueDate)
+                    parseDate(dueDate),
+                    checkEstimate(estimatedMinutes)
             );
             return taskService.create(currentUser.userId(), request);
         });
@@ -109,7 +112,9 @@ public class TaskTools {
             @P(value = "New priority: LOW, MEDIUM or HIGH, or null to keep the current one", required = false) String priority,
             @P(value = "New status: TODO, IN_PROGRESS or COMPLETED, or null to keep the current one", required = false) String status,
             @P(value = "New due date in YYYY-MM-DD format, null to keep the current one, or an empty string to clear it",
-                    required = false) String dueDate
+                    required = false) String dueDate,
+            @P(value = "New estimate in minutes (1-1440), or null to keep the current one", required = false)
+            Integer estimatedMinutes
     ) {
         return guarded("updateTask", () -> {
             if (taskId == null) {
@@ -124,6 +129,7 @@ public class TaskTools {
             TaskStatus newStatus = parseOptionalEnum(TaskStatus.class, status, "status", "TODO, IN_PROGRESS or COMPLETED");
             boolean clearDueDate = dueDate != null && dueDate.isBlank();
             LocalDate newDueDate = clearDueDate ? null : parseDate(dueDate);
+            Integer newEstimate = checkEstimate(estimatedMinutes);
             // The merge with the current values runs inside TaskService.patch, in one transaction on a locked row,
             // so a concurrent edit of another field is not overwritten with a stale value.
             return taskService.patch(currentUser.userId(), taskId, current -> new UpdateTaskRequest(
@@ -131,7 +137,8 @@ public class TaskTools {
                     description == null ? current.description() : description,
                     newPriority == null ? current.priority() : newPriority,
                     newStatus == null ? current.status() : newStatus,
-                    clearDueDate ? null : newDueDate == null ? current.dueDate() : newDueDate
+                    clearDueDate ? null : newDueDate == null ? current.dueDate() : newDueDate,
+                    newEstimate == null ? current.estimatedMinutes() : newEstimate
             ));
         });
     }
@@ -248,6 +255,10 @@ public class TaskTools {
                     .collect(Collectors.joining("; "));
             log.info("Tool {} failed validation: {}", toolName, problems);
             throw new ToolExecutionException("Validation failed: " + problems + ". Fix the arguments and try again.", ex);
+        } catch (RuleViolationException ex) {
+            // A business rule (Phase 3.2) refused the change: tell the model exactly why, so it can explain or adjust.
+            log.info("Tool {} refused by rules: {}", toolName, ex.getMessage());
+            throw new ToolExecutionException("Not allowed: " + ex.getMessage() + " Nothing was changed.", ex);
         } catch (AuthenticationException ex) {
             // Fail closed: without a caller there is no owner to scope the data to, so nothing is read or written.
             log.error("Tool {} ran without an authenticated user", toolName, ex);
@@ -271,6 +282,15 @@ public class TaskTools {
         TaskSort.Field field = parseEnum(TaskSort.Field.class, sortBy, TaskSort.Field.CREATED_AT);
         TaskSort.Direction dir = parseEnum(TaskSort.Direction.class, direction, TaskSort.Direction.DESC);
         return new TaskSort(field, dir);
+    }
+
+    /** The REST API checks the range with Bean Validation; a tool call does not pass through it, so check here. */
+    private static Integer checkEstimate(Integer minutes) {
+        if (minutes != null && (minutes < 1 || minutes > 1440)) {
+            throw new ToolExecutionException("Invalid estimate " + minutes + ". Use 1 to 1440 minutes, or null if "
+                    + "unknown. Nothing was changed.");
+        }
+        return minutes;
     }
 
     /** Null or blank means "not passed" (returns null); an unknown value is an error, not a silent no-op. */

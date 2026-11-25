@@ -1,4 +1,4 @@
-# TaskFlow AI — Phase 3.1
+# TaskFlow AI — Phase 3.2
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
 **AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system** in
@@ -16,8 +16,9 @@ This repository accompanies the Medium article series
 | Phase 1 | LangChain4j + OpenAI (`gpt-4o-mini`) + a single `TaskAgent` | ✅ Implemented |
 | Phase 2 | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | ✅ Implemented |
 | Phase 3.0 | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user | ✅ Implemented |
-| **Phase 3.1** | Evaluation framework: scenario dataset, scripted regression tier, opt-in live-model baseline, reproducible reports (this repository state) | ✅ Implemented |
-| Phase 3.2–3.5 | Rules, guardrails, isolated persistent memory, runtime AI governance | Planned |
+| Phase 3.1 | Evaluation framework: scenario dataset, scripted regression tier, opt-in live-model baseline, reproducible reports | ✅ Implemented |
+| **Phase 3.2** | Deterministic rules: task rules for every write, estimated minutes, structured rule-checked day plans (this repository state) | ✅ Implemented |
+| Phase 3.3–3.5 | Guardrails, isolated persistent memory, runtime AI governance | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -734,7 +735,10 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 - **Phase 3.1 — Evaluation framework (done).** A version-controlled scenario dataset, a scripted regression tier in
   every build and an opt-in live-model baseline with reproducible reports. See
   [`docs/phase-3.1/IMPLEMENTATION.md`](docs/phase-3.1/IMPLEMENTATION.md).
-- **Phase 3.2–3.5 — Reliable and governed agentic AI.** 3.2 deterministic domain rules, 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
+- **Phase 3.2 — Deterministic rules (done).** Task rules enforced in `TaskService` for the UI, the API and the AI
+  alike (`422` with rule codes), optional estimated minutes, and a `submitPlan` tool that makes every day plan pass
+  plan rules before the user sees it. See [`docs/phase-3.2/IMPLEMENTATION.md`](docs/phase-3.2/IMPLEMENTATION.md).
+- **Phase 3.3–3.5 — Reliable and governed agentic AI.** 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
   3.5 runtime AI governance (execution budgets, auditing and human approval of sensitive actions).
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),

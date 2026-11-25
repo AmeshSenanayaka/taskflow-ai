@@ -15,6 +15,19 @@ describe("TaskForm validation", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("shows a business-rule message from the server on its field", async () => {
+    const onSubmit = vi.fn().mockResolvedValue({
+      dueDate: "The due date 2026-11-01 is in the past (today is 2026-11-09). Choose today or a later date.",
+    });
+    renderWithProviders(<TaskForm mode="create" onSubmit={onSubmit} onCancel={vi.fn()} />);
+
+    await userEvent.type(screen.getByLabelText("Title"), "Backdated");
+    await userEvent.click(screen.getByRole("button", { name: /create task/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The due date 2026-11-01 is in the past");
+    expect(screen.getByLabelText("Due date")).toHaveAttribute("aria-invalid", "true");
+  });
+
   it("rejects titles longer than 150 characters", async () => {
     const onSubmit = vi.fn();
     renderWithProviders(<TaskForm mode="create" onSubmit={onSubmit} onCancel={vi.fn()} />);
@@ -46,6 +59,7 @@ describe("TaskForm validation", () => {
       priority: "MEDIUM",
       status: "TODO",
       dueDate: "2026-11-20",
+      estimatedMinutes: "",
     });
   });
 

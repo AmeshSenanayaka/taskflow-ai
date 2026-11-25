@@ -25,7 +25,16 @@
       { "invokeAgent": "PlanningAgent", "request": "Create a three-hour work plan for today" },
       { "toolCall": "getPlanningContext" },
       { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
-      { "text": "Plan (180 minutes): 1. Fix production login bug (90 min) 2. Renew passport (30 min) 3. Prepare sprint review (60 min)." },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:login}", "start": "09:00", "minutes": 90 },
+        { "taskId": "${task:passport}", "start": "10:30", "minutes": 30 },
+        { "taskId": "${task:review}", "start": "11:00", "minutes": 60 },
+        { "taskId": "${task:emails}", "start": "12:00", "minutes": 45 } ] } },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:login}", "start": "09:00", "minutes": 90 },
+        { "taskId": "${task:passport}", "start": "10:30", "minutes": 30 },
+        { "taskId": "${task:review}", "start": "11:00", "minutes": 60 } ] } },
+      { "text": "Plan (180 minutes): 09:00-10:30 Fix production login bug, 10:30-11:00 Renew passport, 11:00-12:00 Prepare sprint review. Deferred: Reply to customer emails." },
       { "invokeAgent": "SummaryAgent", "request": "Summarise the user's tasks" },
       { "toolCall": "getTaskStatistics" },
       { "text": "5 open tasks, 1 completed, 1 overdue." },
@@ -34,6 +43,7 @@
     "expect": {
       "agents": { "required": ["PlanningAgent"] },
       "maxLlmCalls": 30,
+      "plan": { "required": true, "maxTotalMinutes": 180, "excludes": ["done"] },
       "taskCount": { "alice": 6 },
       "unchanged": ["done"],
       "tasks": [ { "key": "login", "status": "TODO" }, { "key": "passport", "status": "TODO" } ]

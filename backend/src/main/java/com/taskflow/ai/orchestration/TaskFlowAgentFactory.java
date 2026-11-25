@@ -50,6 +50,7 @@ public class TaskFlowAgentFactory {
     private final ChatModel chatModel;
     private final Object taskTools;
     private final Object taskQueryTools;
+    private final Object planTools;
     private final ChatMemoryProvider taskAgentMemory;
     private final Supplier<String> contextSupplier;
     private final SupervisorProperties properties;
@@ -59,6 +60,7 @@ public class TaskFlowAgentFactory {
      * @param chatModel       the model every agent (and the supervisor's planner) uses
      * @param taskTools       the read/write tool object for the TaskAgent ({@code TaskTools})
      * @param taskQueryTools  the read-only tool object for the analytical agents ({@code TaskQueryTools})
+     * @param planTools       the plan submission tool for the PlanningAgent ({@code PlanTools}, Phase 3.2)
      * @param taskAgentMemory memory provider for the TaskAgent (one window per conversation id)
      * @param contextSupplier renders the current-date context appended to every system message
      * @param properties      limits and strategies
@@ -67,6 +69,7 @@ public class TaskFlowAgentFactory {
     public TaskFlowAgentFactory(ChatModel chatModel,
                                 Object taskTools,
                                 Object taskQueryTools,
+                                Object planTools,
                                 ChatMemoryProvider taskAgentMemory,
                                 Supplier<String> contextSupplier,
                                 SupervisorProperties properties,
@@ -76,6 +79,7 @@ public class TaskFlowAgentFactory {
         this.chatModel = new TokenAccountingChatModel(chatModel);
         this.taskTools = taskTools;
         this.taskQueryTools = taskQueryTools;
+        this.planTools = planTools;
         this.taskAgentMemory = taskAgentMemory;
         this.contextSupplier = contextSupplier;
         this.properties = properties;
@@ -93,7 +97,7 @@ public class TaskFlowAgentFactory {
     }
 
     public PlanningAgent planningAgent() {
-        return configure(AgenticServices.agentBuilder(PlanningAgent.class), taskQueryTools).build();
+        return configure(AgenticServices.agentBuilder(PlanningAgent.class), taskQueryTools, planTools).build();
     }
 
     public SummaryAgent summaryAgent() {
@@ -138,7 +142,7 @@ public class TaskFlowAgentFactory {
         return scope.readState(SUPERVISOR_OUTPUT_KEY);
     }
 
-    private <T> AgentBuilder<T, ?> configure(AgentBuilder<T, ?> builder, Object tools) {
+    private <T> AgentBuilder<T, ?> configure(AgentBuilder<T, ?> builder, Object... tools) {
         return builder
                 .chatModel(chatModel)
                 .tools(tools)

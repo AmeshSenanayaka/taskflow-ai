@@ -18,6 +18,7 @@ public record TaskResponse(
         @Schema(example = "2026-11-15") LocalDate dueDate,
         @Schema(example = "2026-11-02T10:15:30Z") Instant createdAt,
         @Schema(example = "2026-11-02T10:15:30Z") Instant updatedAt,
-        @Schema(description = "Set only while the task is COMPLETED", example = "2026-11-03T08:00:00Z") Instant completedAt
+        @Schema(description = "Set only while the task is COMPLETED", example = "2026-11-03T08:00:00Z") Instant completedAt,
+        @Schema(description = "Estimate of the work in minutes, if set", example = "45") Integer estimatedMinutes
 ) {
 }

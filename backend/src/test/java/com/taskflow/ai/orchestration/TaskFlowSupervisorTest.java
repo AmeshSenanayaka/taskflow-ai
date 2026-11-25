@@ -9,6 +9,7 @@ import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.dto.ToolCallInfo;
 import com.taskflow.ai.exception.AiServiceException;
 import com.taskflow.ai.service.MultiAgentService;
+import com.taskflow.ai.tool.PlanTools;
 import com.taskflow.ai.tool.TaskQueryTools;
 import com.taskflow.ai.tool.TaskTools;
 import com.taskflow.dto.request.CreateTaskRequest;
@@ -92,10 +93,15 @@ class TaskFlowSupervisorTest {
         TaskTools taskTools = new TaskTools(taskService, preferencesService, currentUser);
         TaskQueryTools queryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock, currentUser);
         AgentContextProvider context = new AgentContextProvider(preferencesService, clock, currentUser);
+        PlanTools planTools = new PlanTools(taskService, preferencesService, currentUser, List.of(
+                new com.taskflow.rules.plan.PlanWellFormedRule(),
+                new com.taskflow.rules.plan.PlanWithinAvailableMinutesRule(),
+                new com.taskflow.rules.plan.PlanOnlyOwnOpenTasksRule(),
+                new com.taskflow.rules.plan.PlanNoOverlapRule()));
         SupervisorProperties properties = new SupervisorProperties(
                 3, 8, 20, SupervisorResponseStrategy.LAST, SupervisorContextStrategy.CHAT_MEMORY);
         TaskFlowAgentFactory factory = new TaskFlowAgentFactory(
-                model, taskTools, queryTools,
+                model, taskTools, queryTools, planTools,
                 id -> MessageWindowChatMemory.builder().id(id).maxMessages(30).build(),
                 context::render, properties, new AgentRunRecorder());
         supervisor = factory.supervisor();
@@ -158,7 +164,7 @@ class TaskFlowSupervisorTest {
         assertThat(response.dataChanged()).isTrue();
         assertThat(response.execution().agents()).extracting(AgentCallInfo::name).containsExactly("TaskAgent");
         verify(taskService).create(USER, new CreateTaskRequest("Review the architecture document", null,
-                TaskPriority.HIGH, LocalDate.parse("2026-11-09")));
+                TaskPriority.HIGH, LocalDate.parse("2026-11-09"), null));
         // the TaskAgent has the read/write tools and the Phase 1 prompt plus the date context
         ChatRequest taskAgentRequest = model.requests().get(1);
         assertThat(ScriptedChatModel.toolNames(taskAgentRequest))
@@ -339,7 +345,7 @@ class TaskFlowSupervisorTest {
     }
 
     private static TaskResponse task(UUID id, String title, TaskPriority priority, TaskStatus status, LocalDate dueDate) {
-        return new TaskResponse(id, title, null, priority, status, dueDate, NOW, NOW, null);
+        return new TaskResponse(id, title, null, priority, status, dueDate, NOW, NOW, null, null);
     }
 
     private static PageResponse<TaskResponse> page(TaskResponse... tasks) {

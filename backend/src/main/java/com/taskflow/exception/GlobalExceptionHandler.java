@@ -3,6 +3,8 @@ package com.taskflow.exception;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.taskflow.ai.conversation.ConversationNotFoundException;
 import com.taskflow.ai.exception.AiServiceException;
+import com.taskflow.rules.RuleViolation;
+import com.taskflow.rules.RuleViolationException;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -37,6 +39,25 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleTaskNotFound(TaskNotFoundException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
         problem.setTitle("Task not found");
+        return problem;
+    }
+
+    /**
+     * Phase 3.2: the request was valid but breaks a business rule. 422, with the rule codes (for clients and evals)
+     * and a field -> message map in the same shape as validation errors, so forms can show it on the field.
+     */
+    @ExceptionHandler(RuleViolationException.class)
+    public ProblemDetail handleRuleViolation(RuleViolationException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
+        problem.setTitle("Business rule violation");
+        Map<String, String> errors = new LinkedHashMap<>();
+        for (RuleViolation violation : ex.violations()) {
+            if (violation.field() != null) {
+                errors.putIfAbsent(violation.field(), violation.message());
+            }
+        }
+        problem.setProperty("errors", errors);
+        problem.setProperty("violations", ex.violations());
         return problem;
     }
 

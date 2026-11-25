@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDataRefresh } from "@/components/providers/app-providers";
 import { ApiError, getErrorMessage } from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
-import type { AgentExecutionInfo, AiStatus, AssistantMode, ChatResponse, PendingConfirmation } from "@/types/ai";
+import type { AgentExecutionInfo, AiStatus, AssistantMode, ChatResponse, DailyPlan, PendingConfirmation } from "@/types/ai";
 
 export type ConfirmationState = "pending" | "approved" | "rejected" | "expired";
 
@@ -18,6 +18,8 @@ export interface AssistantMessage {
   confirmation?: PendingConfirmation | null;
   confirmationState?: ConfirmationState;
   execution?: AgentExecutionInfo;
+  /** A rule-checked day plan returned with the answer (Phase 3.2). */
+  plan?: DailyPlan | null;
   /** True for user messages that failed to send; they can be retried. */
   failed?: boolean;
 }
@@ -117,6 +119,7 @@ export function useAssistant() {
           confirmation: response.pendingConfirmation ?? null,
           confirmationState: response.pendingConfirmation ? "pending" : undefined,
           execution: response.execution,
+          plan: response.plan ?? null,
         },
       ]);
       // The Phase 1 endpoint does not report dataChanged, so refresh after every reply in that case.

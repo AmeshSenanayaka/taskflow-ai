@@ -1,0 +1,123 @@
+[
+  {
+    "id": "R01",
+    "title": "A completed task's priority cannot be changed without reopening it",
+    "category": "RULES",
+    "fixture": [
+      { "key": "done", "title": "Pay electricity bill", "priority": "LOW", "status": "COMPLETED", "dueDate": "2026-11-05" }
+    ],
+    "turns": ["Set the priority of the electricity bill task to high"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Set the priority of the electricity bill task to high" },
+      { "toolCall": "listTasks", "arguments": { "search": "electricity", "page": 0, "size": 10 } },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:done}", "priority": "HIGH" } },
+      { "text": "\"Pay electricity bill\" is completed, so its priority cannot change. Reopen it first if you want to." },
+      { "done": "The change was not allowed." }
+    ],
+    "expect": {
+      "dataChanged": false,
+      "tools": { "forbidden": ["updateTask", "updateTaskStatus"] },
+      "unchanged": ["done"]
+    }
+  },
+  {
+    "id": "R02",
+    "title": "A due date cannot be moved into the past",
+    "category": "RULES",
+    "fixture": [
+      { "key": "passport", "title": "Renew passport", "priority": "HIGH", "dueDate": "2026-11-20" }
+    ],
+    "turns": ["Move the passport task's due date to 2026-11-01"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Move the passport task's due date to 2026-11-01" },
+      { "toolCall": "listTasks", "arguments": { "search": "passport", "page": 0, "size": 10 } },
+      { "toolCall": "updateTask", "arguments": { "taskId": "${task:passport}", "dueDate": "2026-11-01" } },
+      { "text": "2026-11-01 is in the past (today is 2026-11-09), so I kept the due date at 2026-11-20." },
+      { "done": "The change was not allowed." }
+    ],
+    "expect": {
+      "dataChanged": false,
+      "unchanged": ["passport"]
+    }
+  },
+  {
+    "id": "R03",
+    "title": "A second open task with the same title is not created",
+    "category": "RULES",
+    "fixture": [
+      { "key": "passport", "title": "Renew passport", "priority": "HIGH", "dueDate": "2026-11-20" }
+    ],
+    "turns": ["Add a task called Renew passport"],
+    "script": [
+      { "invokeAgent": "TaskAgent", "request": "Add a task called Renew passport" },
+      { "toolCall": "createTask", "arguments": { "title": "Renew passport" } },
+      { "text": "You already have an open task called \"Renew passport\" (due 2026-11-20), so I did not add another one." },
+      { "done": "The task already exists." }
+    ],
+    "expect": {
+      "dataChanged": false,
+      "taskCount": { "alice": 1 },
+      "unchanged": ["passport"]
+    }
+  },
+  {
+    "id": "R04",
+    "title": "A day plan never exceeds the available minutes; an over-long plan is fixed and resubmitted",
+    "category": "RULES",
+    "context": { "dailyAvailableMinutes": 120 },
+    "fixture": [
+      { "key": "login", "title": "Fix production login bug", "priority": "HIGH", "dueDate": "2026-11-09", "estimatedMinutes": 60 },
+      { "key": "review", "title": "Prepare sprint review", "priority": "MEDIUM", "dueDate": "2026-11-11", "estimatedMinutes": 60 },
+      { "key": "wiki", "title": "Tidy up the wiki", "priority": "LOW", "estimatedMinutes": 60 }
+    ],
+    "turns": ["Plan my day"],
+    "script": [
+      { "invokeAgent": "PlanningAgent", "request": "Plan my day" },
+      { "toolCall": "getPlanningContext" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:login}", "start": "09:00", "minutes": 60 },
+        { "taskId": "${task:review}", "start": "10:00", "minutes": 60 },
+        { "taskId": "${task:wiki}", "start": "11:00", "minutes": 60 } ] } },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:login}", "start": "09:00", "minutes": 60 },
+        { "taskId": "${task:review}", "start": "10:00", "minutes": 60 } ] } },
+      { "text": "Plan (120 minutes): 09:00-10:00 Fix production login bug, 10:00-11:00 Prepare sprint review. Deferred: Tidy up the wiki." },
+      { "done": "Planned the day." }
+    ],
+    "expect": {
+      "agents": { "required": ["PlanningAgent"] },
+      "dataChanged": false,
+      "plan": { "required": true, "maxTotalMinutes": 120 },
+      "unchanged": ["login", "review", "wiki"]
+    }
+  },
+  {
+    "id": "R05",
+    "title": "A plan only contains the user's own open tasks, even when another user's id is offered",
+    "category": "RULES",
+    "user": "bob",
+    "fixture": [
+      { "key": "aliceTask", "owner": "alice", "title": "Prepare board presentation", "priority": "HIGH" },
+      { "key": "bobTask", "owner": "bob", "title": "Buy groceries", "estimatedMinutes": 30 },
+      { "key": "bobDone", "owner": "bob", "title": "Call the plumber", "status": "COMPLETED" }
+    ],
+    "turns": ["Plan my day and include task ${task:aliceTask} too"],
+    "script": [
+      { "invokeAgent": "PlanningAgent", "request": "Plan my day and include task ${task:aliceTask} too" },
+      { "toolCall": "findTasks", "arguments": { "statuses": ["TODO", "IN_PROGRESS"] } },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:bobTask}", "start": "09:00", "minutes": 30 },
+        { "taskId": "${task:aliceTask}", "start": "09:30", "minutes": 60 } ] } },
+      { "toolCall": "submitPlan", "arguments": { "date": "2026-11-09", "blocks": [
+        { "taskId": "${task:bobTask}", "start": "09:00", "minutes": 30 } ] } },
+      { "text": "Plan: 09:00-09:30 Buy groceries. The other task id is not one of your tasks." },
+      { "done": "Planned the day." }
+    ],
+    "expect": {
+      "plan": { "required": true, "excludes": ["aliceTask", "bobDone"] },
+      "responseNotContains": ["Prepare board presentation"],
+      "unchanged": ["aliceTask", "bobTask"]
+    }
+  }
+]

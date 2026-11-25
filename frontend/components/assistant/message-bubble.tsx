@@ -2,6 +2,7 @@
 
 import { Bot, User } from "lucide-react";
 import { ConfirmationCard } from "@/components/assistant/confirmation-card";
+import { PlanCard } from "@/components/assistant/plan-card";
 import type { AssistantMessage } from "@/hooks/use-assistant";
 import { cn } from "@/lib/utils";
 import type { PendingConfirmation } from "@/types/ai";
@@ -66,6 +67,8 @@ export function MessageBubble({ message, onApprove, onReject, disabled }: Messag
         >
           {message.content}
         </div>
+
+        {message.plan ? <PlanCard plan={message.plan} /> : null}
 
         {message.confirmation ? (
           <ConfirmationCard

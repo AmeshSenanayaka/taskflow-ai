@@ -71,7 +71,7 @@ class TaskToolsTest {
 
     @Test
     void createTaskPassesTheDueDateThroughAsACalendarDay() {
-        taskTools.createTask("Deploy", null, "HIGH", "2026-11-15");
+        taskTools.createTask("Deploy", null, "HIGH", "2026-11-15", null);
 
         ArgumentCaptor<CreateTaskRequest> captor = ArgumentCaptor.forClass(CreateTaskRequest.class);
         verify(taskService).create(eq(USER), captor.capture());
@@ -80,7 +80,7 @@ class TaskToolsTest {
 
     @Test
     void relativeDatesAreRejectedWithAPointerToGetToday() {
-        assertThatThrownBy(() -> taskTools.createTask("Deploy", null, null, "tomorrow"))
+        assertThatThrownBy(() -> taskTools.createTask("Deploy", null, null, "tomorrow", null))
                 .isInstanceOf(ToolExecutionException.class)
                 .hasMessageContaining("getToday");
     }
@@ -89,7 +89,7 @@ class TaskToolsTest {
     void updateTaskChangesOnlyTheFieldsThatWerePassed() {
         UUID id = UUID.randomUUID();
         UpdateTaskRequest current = new UpdateTaskRequest("Write the article", "Draft", TaskPriority.MEDIUM,
-                TaskStatus.TODO, LocalDate.of(2026, 11, 20));
+                TaskStatus.TODO, LocalDate.of(2026, 11, 20), null);
         AtomicReference<UpdateTaskRequest> stored = new AtomicReference<>();
         when(taskService.patch(eq(USER), eq(id), any())).thenAnswer(invocation -> {
             UnaryOperator<UpdateTaskRequest> change = invocation.getArgument(2);
@@ -98,15 +98,15 @@ class TaskToolsTest {
         });
 
         // priority in lower case, empty dueDate = clear it, everything else untouched
-        taskTools.updateTask(id, null, null, "low", null, "");
+        taskTools.updateTask(id, null, null, "low", null, "", null);
 
         assertThat(stored.get()).isEqualTo(new UpdateTaskRequest("Write the article", "Draft", TaskPriority.LOW,
-                TaskStatus.TODO, null));
+                TaskStatus.TODO, null, null));
     }
 
     @Test
     void updateTaskRejectsAnUnknownPriorityInsteadOfSilentlyKeepingTheOldOne() {
-        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), null, null, "URGENT", null, null))
+        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), null, null, "URGENT", null, null, null))
                 .isInstanceOf(ToolExecutionException.class)
                 .hasMessageContaining("Invalid priority 'URGENT'")
                 .hasMessageContaining("Nothing was changed");
@@ -115,10 +115,10 @@ class TaskToolsTest {
 
     @Test
     void updateTaskRejectsAnUnknownStatusAndABlankTitle() {
-        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), null, null, null, "DONE", null))
+        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), null, null, null, "DONE", null, null))
                 .isInstanceOf(ToolExecutionException.class)
                 .hasMessageContaining("Invalid status 'DONE'");
-        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), "   ", null, null, null, null))
+        assertThatThrownBy(() -> taskTools.updateTask(UUID.randomUUID(), "   ", null, null, null, null, null))
                 .isInstanceOf(ToolExecutionException.class)
                 .hasMessageContaining("title cannot be blank");
         verifyNoInteractions(taskService);

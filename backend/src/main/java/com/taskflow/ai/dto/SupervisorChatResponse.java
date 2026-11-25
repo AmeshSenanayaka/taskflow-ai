@@ -10,7 +10,9 @@ public record SupervisorChatResponse(
         @Schema(description = "The reply shown to the user") String message,
         @Schema(description = "True when a tool changed task data, so clients should refresh lists and statistics")
         boolean dataChanged,
-        Execution execution
+        Execution execution,
+        @Schema(description = "Phase 3.2: the validated day plan, when PlanningAgent produced one")
+        DailyPlan plan
 ) {
 
     @Schema(description = "How the request was processed")
