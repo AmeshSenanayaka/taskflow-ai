@@ -96,10 +96,11 @@ public class ConversationService {
         return summary(owned(ownerId, conversationId));
     }
 
-    /** The transcript of one of the caller's conversations. */
+    /** The transcript of one of the caller's conversations: its last 200 lines, oldest first. */
     public List<ConversationMessage> history(UUID ownerId, String conversationId) {
         AiConversation conversation = owned(ownerId, conversationId);
-        return messages.findByConversationIdOrderBySeqAsc(conversation.getId()).stream()
+        List<AiChatMessage> newestFirst = messages.findTop200ByConversationIdOrderBySeqDesc(conversation.getId());
+        return newestFirst.reversed().stream()
                 .map(this::message)
                 .toList();
     }

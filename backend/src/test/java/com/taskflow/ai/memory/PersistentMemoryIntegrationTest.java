@@ -141,18 +141,34 @@ class PersistentMemoryIntegrationTest extends AbstractAiIntegrationTest {
         String key = aliceId + ":" + conversation;
         ConversationMemory memory = new ConversationMemory(List.of(supervisorStore));
 
-        memory.begin();
+        memory.begin(aliceId);
         supervisorStore.updateMessages(key, List.of(UserMessage.from("rejected turn")));
         // Inside the turn the agents read their own staged writes back.
         assertThat(supervisorStore.getMessages(key)).hasSize(1);
         memory.discard();
         assertThat(supervisorStore.getMessages(key)).isEmpty();
 
-        memory.begin();
+        memory.begin(aliceId);
         supervisorStore.updateMessages(key, List.of(UserMessage.from("good turn")));
         memory.commit();
         assertThat(supervisorStore.getMessages(key)).singleElement()
                 .satisfies(message -> assertThat(((UserMessage) message).singleText()).isEqualTo("good turn"));
+    }
+
+    @Test
+    void aStagedTurnRefusesMemoryOfAnyOtherOwner() {
+        UUID conversation = conversations.create(aliceId).id();
+        UUID bobId = userAccounts.resolve(TestUsers.BOB_SUBJECT, "bob").id();
+        ConversationMemory memory = new ConversationMemory(List.of(supervisorStore));
+
+        // The turn was started for bob; alice's memory key must not be readable inside it.
+        memory.begin(bobId);
+        try {
+            assertThatThrownBy(() -> supervisorStore.getMessages(aliceId + ":" + conversation))
+                    .isInstanceOf(IllegalStateException.class);
+        } finally {
+            memory.discard();
+        }
     }
 
     @Test

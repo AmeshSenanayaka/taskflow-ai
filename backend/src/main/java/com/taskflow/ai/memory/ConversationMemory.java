@@ -1,6 +1,7 @@
 package com.taskflow.ai.memory;
 
 import com.taskflow.ai.guardrail.GroundedAnswerOutputGuardrail;
+import com.taskflow.ai.orchestration.AgentRunRecorder;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -33,9 +35,14 @@ public class ConversationMemory {
         this.stores = stores.stream().collect(Collectors.toMap(PostgresChatMemoryStore::namespace, Function.identity()));
     }
 
-    /** Starts staging the memory writes of the turn on this thread. */
-    public void begin() {
-        StagedMemory.begin();
+    /**
+     * Starts staging the memory writes of the turn on this thread.
+     *
+     * @param owner the owner of the conversation, already verified against the signed-in caller
+     *              ({@code ConversationService.requireOwned}); memory of any other owner is refused during the turn
+     */
+    public void begin(UUID owner) {
+        StagedMemory.begin(owner);
     }
 
     /** Persists the staged turn, without reprompts and the answers they rejected. */
@@ -50,7 +57,7 @@ public class ConversationMemory {
             if (entry.messages() == null) {
                 store.delete(entry.key());
             } else {
-                store.write(entry.key(), withoutRepairs(entry.messages()));
+                store.write(entry.key(), withoutRepairs(entry.messages(), AgentRunRecorder.repairs()));
             }
         }
         log.info("memory.committed windows={}", staged.size());
@@ -64,22 +71,42 @@ public class ConversationMemory {
         }
     }
 
-    /**
-     * Removes each output-guardrail reprompt and the rejected answer just before it. Only the repaired answer, which
-     * passed the checks, remains.
-     */
     static List<ChatMessage> withoutRepairs(List<ChatMessage> messages) {
+        return withoutRepairs(messages, Map.of());
+    }
+
+    /**
+     * Replaces the answers an output guardrail rejected with the repaired answers, so memory holds only answers that
+     * passed the checks.
+     * <p>
+     * LangChain4j (1.23) adds the agent's answer to chat memory before the output guardrail runs, sends the reprompt
+     * to the model without storing it, and does not store the repaired answer: memory keeps the rejected draft. The
+     * guardrail therefore records each repair ({@code AgentRunRecorder.repairs()}: draft to repaired answer), and the
+     * draft is replaced here. As a second line of defence, a text answer directly followed by another text answer is
+     * treated as a superseded draft (a tool-calling AiMessage is always followed by tool results), and a stored
+     * reprompt is removed.
+     */
+    static List<ChatMessage> withoutRepairs(List<ChatMessage> messages, Map<String, String> repairs) {
         List<ChatMessage> kept = new ArrayList<>(messages.size());
-        for (ChatMessage message : messages) {
+        for (ChatMessage original : messages) {
+            ChatMessage message = original;
+            if (message instanceof AiMessage ai && !ai.hasToolExecutionRequests() && ai.text() != null
+                    && repairs.containsKey(ai.text())) {
+                message = AiMessage.from(repairs.get(ai.text()));
+            }
             if (message instanceof UserMessage user && user.hasSingleText()
                     && user.singleText().contains(GroundedAnswerOutputGuardrail.REPROMPT_MARKER)) {
-                if (!kept.isEmpty() && kept.get(kept.size() - 1) instanceof AiMessage) {
-                    kept.remove(kept.size() - 1);
-                }
                 continue;
+            }
+            if (isTextAnswer(message) && !kept.isEmpty() && isTextAnswer(kept.get(kept.size() - 1))) {
+                kept.remove(kept.size() - 1);
             }
             kept.add(message);
         }
         return kept;
+    }
+
+    private static boolean isTextAnswer(ChatMessage message) {
+        return message instanceof AiMessage ai && !ai.hasToolExecutionRequests();
     }
 }

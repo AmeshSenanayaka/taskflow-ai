@@ -27,10 +27,20 @@ row key    = (conversation_id, namespace)    namespace: supervisor | task-agent
 
 - **Per user.** `PostgresChatMemoryStore` refuses a memory id whose owner is not the signed-in caller, and every
   SQL statement in `ChatMemoryRepository` also checks `ai_conversations.owner_id`. Either mismatch fails closed:
-  nothing is read, nothing is written.
+  nothing is read, nothing is written. During a staged turn the owner verified when the turn started
+  (`memory.begin(ownerId)`) is used, so the many memory reads and writes of one turn need no user lookup.
 - **Per conversation.** Rows are keyed by conversation id; the API checks ownership before any agent runs (3.0).
 - **Per agent.** LangChain4j gives the supervisor's planner and TaskAgent the same `@MemoryId`. Each gets its own
   store instance with its own namespace (`MemoryConfig`), so neither reads or overwrites the other's window.
+
+## The other in-process memory: AgenticScope
+
+Because `TaskFlowSupervisor.chat` has a `@MemoryId`, LangChain4j's agentic module keeps an `AgenticScope` per
+memory id in process (`AgenticScopeRegistry`, kind `PERSISTENT`): the turn's agent outputs and context. Left alone it
+would grow with every conversation, survive deletion and retention, ignore staged commits, and be lost on restart.
+`TaskFlowSupervisor` therefore extends `AgenticScopeAccess`, and `MultiAgentService` calls
+`evictAgenticScope(memoryKey)` after every turn. Each turn starts with a fresh scope; everything that carries over
+comes from the persisted, staged chat memory. (Evicting the scope does not touch chat memory.)
 
 ## Staged memory commits
 
@@ -51,9 +61,20 @@ MultiAgentService / AiChatController
 The supervisor runs every sub-agent on the request thread (the same fact the 3.0 `CurrentUserProvider` and the
 `AgentRunRecorder` rely on), so one thread-local buffer sees every agent of the turn.
 
-`ConversationMemory.withoutRepairs` removes each output-guardrail reprompt (recognised by
-`GroundedAnswerOutputGuardrail.REPROMPT_MARKER`) together with the rejected answer just before it. Only the repaired
-answer, which passed the checks, is remembered.
+`ConversationMemory.withoutRepairs` makes memory hold the repaired answer instead of the rejected one. What
+LangChain4j 1.23 does on a reprompt (read from its bytecode and confirmed by eval M04): the agent's answer is added to
+chat memory by the tool loop *before* the output guardrail runs; the reprompt is sent to the model without being
+stored; and the repaired answer is returned but never stored. Left alone, memory would keep the rejected draft and
+the model would "remember" the invented task next turn. So `GroundedAnswerOutputGuardrail` records each repair
+(`AgentRunRecorder.repairs()`: rejected draft → repaired answer) and the commit swaps the draft for the repaired
+answer. As further defence, a text answer directly followed by another one is treated as a superseded draft, and a
+stored reprompt (recognised by `GroundedAnswerOutputGuardrail.REPROMPT_MARKER`) is removed.
+
+If saving the memory fails (database error, or the conversation was deleted by retention during the turn), the error
+is logged and the turn is forgotten by the model; the user still gets the answer they already have.
+
+Memory and transcript are written in separate transactions, so in a rare failure one can be saved without the other.
+The transcript is what the user sees; the memory is what the model sees; neither is needed for the other to work.
 
 Trade-off: a discarded turn is forgotten by the model, even if tasks were changed in it. The tools always read live
 data, and the transcript still shows the fallback, so the next turn does not depend on it.
@@ -74,7 +95,7 @@ data, and the transcript still shows the fallback, so the next turn does not dep
 | `taskflow.ai.memory.retention` | `30d` | `ConversationRetentionJob` deletes conversations without activity for longer |
 | `taskflow.ai.memory.max-conversations` | `100` | per user; starting a new one deletes the least recently used beyond it |
 | `taskflow.ai.memory.cleanup-interval` | `PT1H` | how often the retention job runs |
-| `taskflow.ai.memory.max-stored-bytes` | `262144` | cap on one stored window |
+| `taskflow.ai.memory.max-stored-bytes` | `262144` | cap on one stored window, in characters of JSON |
 | `taskflow.ai.memory.max-messages` | `30` | TaskAgent's window (supervisor: `supervisor.memory-max-messages`, 20) |
 
 ## API
@@ -83,7 +104,7 @@ data, and the transcript still shows the fallback, so the next turn does not dep
 |---|---|---|
 | `POST` | `/api/ai/conversations?mode=supervisor\|agent` | start; the mode is stored so a resumed conversation reopens in it |
 | `GET` | `/api/ai/conversations` | the caller's conversations, most recent first (max 50) |
-| `GET` | `/api/ai/conversations/{id}/messages` | transcript; `404` if not the caller's |
+| `GET` | `/api/ai/conversations/{id}/messages` | the last 200 transcript lines; `404` if not the caller's |
 | `DELETE` | `/api/ai/conversations/{id}` | deletes memory and transcript; `404` if not the caller's |
 
 ## UI
@@ -114,6 +135,8 @@ for confirmation and says that tasks are not affected.
 - `TaskRepositoryIntegrationTest`: migrations 1–5.
 
 ## Limits
+
+- With several backend instances the retention job runs on each of them; deleting is idempotent, so this is harmless.
 
 - The Phase 1 endpoint has no per-conversation lock; two simultaneous messages to the same agent-mode conversation
   could interleave their memory commits (the supervisor path is serialised).

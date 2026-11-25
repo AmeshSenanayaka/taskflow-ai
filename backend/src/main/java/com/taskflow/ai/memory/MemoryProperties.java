@@ -14,7 +14,8 @@ import java.time.Duration;
  * @param maxMessages      TaskAgent's sliding window (messages the model sees), as in Phase 1
  * @param retention        conversations without activity for this long are deleted with their memory and transcript
  * @param maxConversations conversations kept per user; the oldest are deleted when a new one is started
- * @param maxStoredBytes   upper bound on one stored memory window; the oldest messages are dropped above it
+ * @param maxStoredBytes   upper bound on one stored memory window, in characters of JSON (close to bytes for
+ *                         mostly-ASCII text); the oldest messages are dropped above it
  * @param cleanupInterval  how often the retention job runs
  */
 @Validated

@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * The memory writes of the turn running on this thread, held back until the turn is known to be good
@@ -25,12 +26,20 @@ final class StagedMemory {
     }
 
     private static final ThreadLocal<Map<String, Entry>> CURRENT = new ThreadLocal<>();
+    /** The owner of the conversation being staged, verified by the caller before the turn started. */
+    private static final ThreadLocal<UUID> OWNER = new ThreadLocal<>();
 
     private StagedMemory() {
     }
 
-    static void begin() {
+    static void begin(UUID owner) {
         CURRENT.set(new LinkedHashMap<>());
+        OWNER.set(owner);
+    }
+
+    /** The verified owner of the staged turn, or null when no turn is staged. */
+    static UUID owner() {
+        return OWNER.get();
     }
 
     static boolean active() {
@@ -51,6 +60,7 @@ final class StagedMemory {
     static List<Entry> end() {
         Map<String, Entry> staged = CURRENT.get();
         CURRENT.remove();
+        OWNER.remove();
         return staged == null ? List.of() : List.copyOf(staged.values());
     }
 

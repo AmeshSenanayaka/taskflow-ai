@@ -1,6 +1,7 @@
 package com.taskflow.ai.agent;
 
 import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.agentic.scope.AgenticScopeAccess;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.V;
 
@@ -14,8 +15,12 @@ import dev.langchain4j.service.V;
  * decides the next invocation step by step until it answers "done". {@code @MemoryId} gives the
  * supervisor its own chat memory per conversation, and the same id is forwarded to sub-agents that
  * declare one (the {@link TaskAgent}), so multi-turn follow-ups work across the whole system.
+ * <p>
+ * Because of {@code @MemoryId}, LangChain4j also keeps an {@code AgenticScope} (the turn's agent outputs and context)
+ * per conversation in process. {@link AgenticScopeAccess} lets {@code MultiAgentService} evict it after every turn
+ * (Phase 3.4): what carries over between turns is only the persisted, staged chat memory.
  */
-public interface TaskFlowSupervisor {
+public interface TaskFlowSupervisor extends AgenticScopeAccess {
 
     String NAME = "TaskFlowSupervisor";
 

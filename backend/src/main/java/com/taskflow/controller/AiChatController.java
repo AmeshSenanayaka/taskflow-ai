@@ -107,13 +107,18 @@ public class AiChatController {
         // input guardrail report which check refused the message.
         AgentRunRecorder.Run run = AgentRunRecorder.open();
         // Phase 3.4: memory writes are staged and committed only when the turn succeeds.
-        memory.begin();
+        memory.begin(conversation.ownerId());
         try {
             response = taskAgentService.chat(
                     conversation.memoryKey(),
                     request.message()
             );
-            memory.commit();
+            try {
+                memory.commit();
+            } catch (RuntimeException ex) {
+                // The user still gets the answer; the model forgets the turn (see MultiAgentService.commitMemory).
+                log.error("memory.commit-failed error={}", ex.toString(), ex);
+            }
             conversations.recordTurn(conversation, request.message(), response, null, run.guardrails());
         } catch (InputGuardrailException ex) {
             // Phase 3.3: TaskAgent's @InputGuardrails(TaskScopeInputGuardrail.class) refused the message.

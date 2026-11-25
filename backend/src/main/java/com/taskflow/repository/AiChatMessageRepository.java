@@ -8,6 +8,6 @@ import java.util.UUID;
 
 public interface AiChatMessageRepository extends JpaRepository<AiChatMessage, UUID> {
 
-    /** The transcript in order; callers check the conversation's owner first. */
-    List<AiChatMessage> findByConversationIdOrderBySeqAsc(UUID conversationId);
+    /** The newest 200 transcript lines, newest first; callers check the conversation's owner first. */
+    List<AiChatMessage> findTop200ByConversationIdOrderBySeqDesc(UUID conversationId);
 }

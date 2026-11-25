@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * LangChain4j {@link ChatMemoryStore} backed by PostgreSQL, one instance per agent {@link MemoryNamespace}
@@ -89,10 +90,14 @@ public class PostgresChatMemoryStore implements ChatMemoryStore {
         repository.delete(key, namespace);
     }
 
-    /** The memory id must name the signed-in caller as owner; anything else is a bug or an attack. */
+    /**
+     * The memory id must name the signed-in caller as owner; anything else is a bug or an attack. During a staged
+     * turn the owner was verified once when the turn started, so the check needs no lookup of the current user.
+     */
     private MemoryKey authorize(Object memoryId) {
         MemoryKey key = MemoryKey.parse(memoryId);
-        if (!key.ownerId().equals(currentUser.userId())) {
+        UUID owner = StagedMemory.owner() != null ? StagedMemory.owner() : currentUser.userId();
+        if (!key.ownerId().equals(owner)) {
             throw new IllegalStateException("Chat memory of another user requested");
         }
         return key;

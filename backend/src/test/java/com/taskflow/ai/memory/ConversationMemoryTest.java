@@ -45,6 +45,39 @@ class ConversationMemoryTest {
     }
 
     @Test
+    void theRejectedDraftLangChain4jKeepsInMemoryIsRemoved() {
+        // What LangChain4j 1.23 stores after a reprompt: the draft, then the repaired answer (no reprompt message).
+        List<ChatMessage> turn = List.of(
+                UserMessage.from("Show my open tasks"),
+                AiMessage.from("Your tasks: \"Book flights to Tokyo\"."),
+                AiMessage.from("Your tasks: \"Prepare sprint review\"."));
+
+        assertThat(ConversationMemory.withoutRepairs(turn)).extracting(Object::toString)
+                .noneMatch(text -> text.contains("Tokyo"))
+                .anyMatch(text -> text.contains("Prepare sprint review"));
+    }
+
+    @Test
+    void theRejectedDraftIsReplacedByTheRepairedAnswerLangChain4jNeverStored() {
+        // What LangChain4j 1.23 really stores after a reprompt: the draft only; the repaired answer is not stored.
+        String draft = "Your tasks: \"Book flights to Tokyo\".";
+        String repaired = "Your tasks: \"Prepare sprint review\".";
+        List<ChatMessage> turn = List.of(UserMessage.from("Show my open tasks"), AiMessage.from(draft));
+
+        assertThat(ConversationMemory.withoutRepairs(turn, java.util.Map.of(draft, repaired)))
+                .containsExactly(UserMessage.from("Show my open tasks"), AiMessage.from(repaired));
+    }
+
+    @Test
+    void aToolCallFollowedByItsResultIsKept() {
+        ToolExecutionRequest call = ToolExecutionRequest.builder().id("1").name("listTasks").arguments("{}").build();
+        List<ChatMessage> turn = List.of(UserMessage.from("Show my tasks"), AiMessage.from(List.of(call)),
+                ToolExecutionResultMessage.from(call, "[]"), AiMessage.from("You have no tasks."));
+
+        assertThat(ConversationMemory.withoutRepairs(turn)).isEqualTo(turn);
+    }
+
+    @Test
     void anOversizedWindowDropsTheOldestMessagesButKeepsTheSystemMessageAndNoOrphanToolResults() {
         ToolExecutionRequest call = ToolExecutionRequest.builder().id("1").name("listTasks").arguments("{}").build();
         List<ChatMessage> window = List.of(

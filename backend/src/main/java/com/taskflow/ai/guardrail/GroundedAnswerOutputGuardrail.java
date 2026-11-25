@@ -55,13 +55,13 @@ public class GroundedAnswerOutputGuardrail implements OutputGuardrail {
         DailyPlan plan = AgentRunRecorder.currentPlan();
         List<GuardrailViolation> violations = AnswerGuard.check(answer, tasks, requestText(request), plan);
         if (violations.isEmpty()) {
-            if (AgentRunRecorder.takeRepairPending()) {
+            if (AgentRunRecorder.completeRepair(answer)) {
                 AgentRunRecorder.recordGuardrail(GuardrailCodes.OUTPUT_REWRITTEN);
             }
             return success();
         }
         violations.forEach(violation -> AgentRunRecorder.recordGuardrail(violation.code()));
-        AgentRunRecorder.markRepairPending();
+        AgentRunRecorder.markRepairPending(answer);
         log.warn("guardrail.agent-output-failed codes={}",
                 violations.stream().map(GuardrailViolation::code).distinct().toList());
         String problems = violations.stream().map(GuardrailViolation::message).collect(Collectors.joining(" "));

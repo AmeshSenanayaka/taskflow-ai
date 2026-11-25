@@ -126,7 +126,7 @@ public class MultiAgentService {
             }
             // Phase 3.4: from here on, chat-memory writes are staged until the answer is known to be good.
             if (memory != null) {
-                memory.begin();
+                memory.begin(conversation.ownerId());
             }
             String answer;
             try {
@@ -155,7 +155,7 @@ public class MultiAgentService {
                 if (rejected) {
                     memory.discard();
                 } else {
-                    memory.commit();
+                    commitMemory();
                 }
             }
             recordTurn(conversation, message, answer, run.plan(), run.guardrails());
@@ -187,7 +187,33 @@ public class MultiAgentService {
             if (memory != null) {
                 memory.discard();
             }
+            evictScope(conversation);
             AgentRunRecorder.close();
+        }
+    }
+
+    /**
+     * Saves the turn's memory. A failure is logged and the turn is forgotten by the model, but the user still gets
+     * the answer they already have (their tasks may have changed in this turn); the transcript records it.
+     */
+    private void commitMemory() {
+        try {
+            memory.commit();
+        } catch (RuntimeException ex) {
+            log.error("memory.commit-failed error={}", ex.toString(), ex);
+        }
+    }
+
+    /**
+     * LangChain4j keeps the supervisor's AgenticScope per memory id in process. Evicting it after every turn keeps
+     * the process from growing with every conversation and makes the persisted chat memory the only thing that
+     * carries over, so a discarded turn is really forgotten and a restart loses nothing.
+     */
+    private void evictScope(ConversationRef conversation) {
+        try {
+            supervisor.evictAgenticScope(conversation.memoryKey());
+        } catch (RuntimeException ex) {
+            log.warn("supervisor.scope-evict-failed error={}", ex.toString());
         }
     }
 
