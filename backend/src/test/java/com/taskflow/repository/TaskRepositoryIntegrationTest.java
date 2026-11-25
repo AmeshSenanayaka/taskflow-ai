@@ -64,7 +64,7 @@ class TaskRepositoryIntegrationTest extends AbstractIntegrationTest {
     void flywayMigrationsWereApplied() {
         List<String> versions = jdbcTemplate.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
-        assertThat(versions).containsExactly("1", "2", "3");
+        assertThat(versions).containsExactly("1", "2", "3", "4");
 
         // V3 hands the pre-Phase-3 preferences row to the demo user alice.
         Integer alicePreferences = jdbcTemplate.queryForObject(

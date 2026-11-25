@@ -5,6 +5,7 @@ import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.ai.dto.ToolCallInfo;
 import com.taskflow.ai.tool.MutatesTasks;
 import com.taskflow.ai.tool.TaskTools;
+import com.taskflow.dto.response.TaskResponse;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agentic.observability.AfterAgentToolExecution;
 import dev.langchain4j.agentic.observability.AgentInvocationError;
@@ -22,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -67,6 +69,21 @@ public class AgentRunRecorder implements AgentListener {
         /** Phase 3.2: the last plan PlanningAgent submitted and the rules accepted, and the submissions so far. */
         private DailyPlan plan;
         private int planAttempts;
+        /** Phase 3.3: task changes made in this request, and the guardrails that acted, in order. */
+        private int writes;
+        /** Phase 3.3: what the supervisor asked each sub-agent; quoting it is not inventing (output checks). */
+        private final List<String> agentRequests = new ArrayList<>();
+        /** Phase 3.3: the user's tasks as the output checks last loaded them; cleared by every write. */
+        private List<TaskResponse> taskSnapshot;
+        private final java.util.LinkedHashSet<String> guardrails = new java.util.LinkedHashSet<>();
+        /** The user's message passed the entry-point input check, so agent-level input guardrails skip it. */
+        private boolean inputChecked;
+        /** An agent's answer failed the output guardrail and the agent was asked to repair it. */
+        private boolean repairPending;
+
+        public List<String> guardrails() {
+            return List.copyOf(guardrails);
+        }
 
         public DailyPlan plan() {
             return plan;
@@ -99,6 +116,95 @@ public class AgentRunRecorder implements AgentListener {
         if (run != null) {
             run.plan = plan;
         }
+    }
+
+    /** Task changes made so far in the current request, or -1 when no request is recorded (no write limit then). */
+    public static int writesSoFar() {
+        Run run = CURRENT.get();
+        return run == null ? -1 : run.writes;
+    }
+
+    /** Counts a task change that succeeded; rejected or failed writes do not use up the write limit. */
+    public static void recordWrite() {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.writes++;
+            run.taskSnapshot = null;
+        }
+    }
+
+    /**
+     * The user's tasks for the output checks, loaded once per request and again only after a write, so checking
+     * every agent's answer and the final answer does not reload every task each time.
+     */
+    public static List<TaskResponse> tasksForChecks(Supplier<List<TaskResponse>> loader) {
+        Run run = CURRENT.get();
+        if (run == null) {
+            return loader.get();
+        }
+        if (run.taskSnapshot == null) {
+            run.taskSnapshot = loader.get();
+        }
+        return run.taskSnapshot;
+    }
+
+    /** Records what a sub-agent was asked (called by {@link #beforeAgentInvocation}). */
+    public static void recordAgentRequest(String request) {
+        Run run = CURRENT.get();
+        if (run != null && request != null && !request.isBlank()) {
+            run.agentRequests.add(request);
+        }
+    }
+
+    /** What the sub-agents were asked in the current request, in order. */
+    public static List<String> agentRequests() {
+        Run run = CURRENT.get();
+        return run == null ? List.of() : List.copyOf(run.agentRequests);
+    }
+
+    /** Records that a guardrail acted in the current request (each code once). */
+    public static void recordGuardrail(String code) {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.guardrails.add(code);
+        }
+    }
+
+    /** The plan accepted so far in the current request, or null. */
+    public static DailyPlan currentPlan() {
+        Run run = CURRENT.get();
+        return run == null ? null : run.plan;
+    }
+
+    /** Marks that the entry point already checked the user's message (supervisor path, Phase 3.3). */
+    public static void markInputChecked() {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.inputChecked = true;
+        }
+    }
+
+    public static boolean inputChecked() {
+        Run run = CURRENT.get();
+        return run != null && run.inputChecked;
+    }
+
+    /** Marks that an agent was asked to repair an answer that failed the output guardrail. */
+    public static void markRepairPending() {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.repairPending = true;
+        }
+    }
+
+    /** @return whether a repair was pending, clearing the flag */
+    public static boolean takeRepairPending() {
+        Run run = CURRENT.get();
+        if (run == null || !run.repairPending) {
+            return false;
+        }
+        run.repairPending = false;
+        return true;
     }
 
     /** Counts a plan submission in the current request and returns its number (1 for the first). */
@@ -149,6 +255,13 @@ public class AgentRunRecorder implements AgentListener {
         Run run = CURRENT.get();
         if (run != null) {
             run.startedAt.put(request.agentId(), System.nanoTime());
+            if (request.inputs() != null) {
+                request.inputs().values().forEach(value -> {
+                    if (value instanceof String text) {
+                        recordAgentRequest(text);
+                    }
+                });
+            }
         }
     }
 

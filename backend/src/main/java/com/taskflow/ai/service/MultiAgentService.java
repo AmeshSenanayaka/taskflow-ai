@@ -8,9 +8,12 @@ import com.taskflow.ai.agent.TaskFlowSupervisor;
 import com.taskflow.ai.conversation.ConversationRef;
 import com.taskflow.ai.dto.AgentDescriptor;
 import com.taskflow.ai.dto.SupervisorChatResponse;
+import com.taskflow.ai.guardrail.ConversationGuardrails;
+import com.taskflow.ai.guardrail.GuardrailCodes;
 import com.taskflow.ai.exception.AiServiceException;
 import com.taskflow.ai.orchestration.AgentRunRecorder;
 import dev.langchain4j.agentic.Agent;
+import dev.langchain4j.guardrail.GuardrailException;
 import dev.langchain4j.model.output.TokenUsage;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -53,8 +56,11 @@ public class MultiAgentService {
         private int users;
     }
 
-    public MultiAgentService(TaskFlowSupervisor supervisor) {
+    private final ConversationGuardrails guardrails;
+
+    public MultiAgentService(TaskFlowSupervisor supervisor, ConversationGuardrails guardrails) {
         this.supervisor = supervisor;
+        this.guardrails = guardrails;
     }
 
     /**
@@ -74,7 +80,7 @@ public class MultiAgentService {
         try {
             MDC.put("requestId", requestId);
             MDC.put("conversationId", conversationId);
-            return run(conversationId, memoryKey, message, requestId);
+            return run(conversation, message, requestId);
         } finally {
             MDC.remove("requestId");
             MDC.remove("conversationId");
@@ -83,16 +89,41 @@ public class MultiAgentService {
         }
     }
 
-    private SupervisorChatResponse run(String conversationId, String memoryKey, String message, String requestId) {
+    private SupervisorChatResponse run(ConversationRef conversation, String message, String requestId) {
+        String conversationId = conversation.id().toString();
         long started = System.nanoTime();
         AgentRunRecorder.Run run = AgentRunRecorder.open();
         try {
             log.info("supervisor.request chars={}", message.length());
-            String answer = supervisor.chat(memoryKey, message);
+            // Phase 3.3 input guardrails: no agent runs, no model call, nothing enters chat memory.
+            var refusal = guardrails.checkInput(message);
+            if (refusal.isPresent()) {
+                log.info("guardrail.input code={}", refusal.get().code());
+                return new SupervisorChatResponse(conversationId, refusal.get().reply(), false,
+                        new SupervisorChatResponse.Execution(requestId, (System.nanoTime() - started) / 1_000_000,
+                                List.of(), List.of(), 0, null),
+                        null, List.of(refusal.get().code()));
+            }
+            String answer;
+            try {
+                answer = supervisor.chat(conversation.memoryKey(), message);
+            } catch (RuntimeException ex) {
+                GuardrailException guardrail = guardrailCause(ex);
+                if (guardrail == null) {
+                    throw ex;
+                }
+                // An agent's answer still failed its output guardrail after the allowed reprompts
+                // (OutputGuardrailsConfig.maxRetries): show the safe fallback, never the failed text.
+                log.warn("guardrail.agent-gave-up error={}", guardrail.getMessage());
+                AgentRunRecorder.recordGuardrail(GuardrailCodes.OUTPUT_FALLBACK);
+                answer = ConversationGuardrails.fallback(run.plan(), run.dataChanged());
+            }
             if (answer == null || answer.isBlank()) {
                 log.warn("supervisor.empty-answer agents={}", run.agents());
                 answer = FALLBACK_MESSAGE;
             }
+            // Phase 3.3 final check on the combined answer (each agent already repaired its own): show it or fall back.
+            answer = guardrails.checkOutput(conversation.ownerId(), message, answer, run.plan(), run.dataChanged());
             long durationMs = (System.nanoTime() - started) / 1_000_000;
             log.info("supervisor.completed durationMs={} llmCalls={} agents={} tools={} dataChanged={}",
                     durationMs,
@@ -107,7 +138,8 @@ public class MultiAgentService {
                     new SupervisorChatResponse.Execution(
                             requestId, durationMs, run.agents(), run.toolCalls(), run.llmCalls(),
                             tokenUsage(run.tokenUsage())),
-                    run.plan());
+                    run.plan(),
+                    run.guardrails());
         } catch (RuntimeException ex) {
             // Tool failures never reach here (they are fed back to the model); this is a model call or the
             // planner failing: rate limit, timeout, bad key, network, unparsable plan. Log detail, return a safe message.
@@ -118,6 +150,19 @@ public class MultiAgentService {
         } finally {
             AgentRunRecorder.close();
         }
+    }
+
+    /** The LangChain4j guardrail failure behind an agent failure, if any (agentic may wrap it). */
+    private static GuardrailException guardrailCause(Throwable error) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof GuardrailException guardrail) {
+                return guardrail;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return null;
     }
 
     /** The agent cards exactly as the supervisor's planner sees them, for the UI and the API docs. */

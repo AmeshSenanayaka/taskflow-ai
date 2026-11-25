@@ -18,10 +18,14 @@ function describeExecution(message: AssistantMessage): string | null {
   const execution = message.execution;
   if (!execution) return null;
   const parts: string[] = [];
+  const guardrails = message.guardrails ?? [];
+  const refusedByGuardrail = guardrails.some((code) => code.startsWith("INPUT_"));
   if (execution.agents && execution.agents.length > 0) {
     parts.push(
       `Agents: ${execution.agents.map((call) => `${call.name} (${call.durationMs} ms${call.success ? "" : ", failed"})`).join(" > ")}`,
     );
+  } else if (refusedByGuardrail) {
+    parts.push("Answered by an input guardrail, no agent ran");
   } else if (execution.agents && message.mode === "supervisor") {
     parts.push("Answered by the supervisor directly");
   }
@@ -32,6 +36,7 @@ function describeExecution(message: AssistantMessage): string | null {
   }
   if (execution.llmCalls) parts.push(`${execution.llmCalls} LLM call${execution.llmCalls === 1 ? "" : "s"}`);
   if (execution.tokenUsage?.totalTokens) parts.push(`${execution.tokenUsage.totalTokens} tokens`);
+  if (guardrails.length > 0) parts.push(`Guardrails: ${guardrails.join(", ")}`);
   parts.push(`${execution.durationMs} ms`);
   return parts.join(" · ");
 }

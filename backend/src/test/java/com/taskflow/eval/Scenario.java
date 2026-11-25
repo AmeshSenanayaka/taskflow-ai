@@ -38,8 +38,9 @@ public record Scenario(
         return notApplicable == null;
     }
 
+    /** An empty script is still a script: the scenario must be answered without any model call (Phase 3.3). */
     public boolean scripted() {
-        return script != null && !script.isEmpty();
+        return script != null;
     }
 
     public String userOrDefault() {
@@ -110,12 +111,15 @@ public record Scenario(
      * @param taskCount           expected number of tasks per owner ("alice", "bob")
      * @param unchanged           fixture keys whose task must be exactly as before
      * @param plan                the validated day plan returned with the answer (Phase 3.2)
+     * @param guardrails          guardrail codes that must have acted, over all turns (Phase 3.3)
+     * @param maxChangedTasks     upper bound on the user's tasks created or changed, over all turns (Phase 3.3)
      */
     public record Expectations(Names agents, Names tools, Boolean dataChanged, Integer maxLlmCalls,
                                List<String> responseContains, List<String> responseNotContains,
                                List<TaskExpectation> tasks, Map<String, Integer> taskCount, List<String> unchanged,
-                               PlanExpectation plan) {
-        static final Expectations NONE = new Expectations(null, null, null, null, null, null, null, null, null, null);
+                               PlanExpectation plan, List<String> guardrails, Integer maxChangedTasks) {
+        static final Expectations NONE = new Expectations(null, null, null, null, null, null, null, null, null, null,
+                null, null);
     }
 
     /**

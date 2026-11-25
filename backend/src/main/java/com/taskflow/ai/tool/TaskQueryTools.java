@@ -1,6 +1,7 @@
 package com.taskflow.ai.tool;
 
 import com.taskflow.ai.exception.ToolExecutionException;
+import com.taskflow.ai.guardrail.UntrustedTaskData;
 import com.taskflow.dto.response.DashboardStatsResponse;
 import com.taskflow.dto.response.PageResponse;
 import com.taskflow.dto.response.PreferencesResponse;
@@ -136,12 +137,14 @@ public class TaskQueryTools {
                     parseEnum(TaskSort.Direction.class, direction, TaskSort.Direction.ASC));
             int size = limit == null ? 20 : Math.clamp(limit, 1, MAX_RESULTS);
             PageResponse<TaskResponse> page = taskService.list(currentUser.userId(), filter, sort, 0, size);
-            return new TaskSearchResult(page.content(), page.totalElements(), page.totalElements() > page.content().size());
+            return new TaskSearchResult(page.content(), page.totalElements(),
+                    page.totalElements() > page.content().size(), UntrustedTaskData.notice(page.content()));
         });
     }
 
     /** Flat result for the model: the tasks, how many matched in total and whether the list was cut. */
-    public record TaskSearchResult(List<TaskResponse> tasks, long totalMatches, boolean truncated) {
+    /** {@code notice} is set (Phase 3.3) when task text in the result looks like instructions. */
+    public record TaskSearchResult(List<TaskResponse> tasks, long totalMatches, boolean truncated, String notice) {
     }
 
     private static LocalDate parseDate(String value) {

@@ -4,6 +4,9 @@ import com.taskflow.ai.agent.TaskFlowSupervisor;
 import com.taskflow.ai.orchestration.AgentContextProvider;
 import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.ai.orchestration.TaskFlowAgentFactory;
+import com.taskflow.ai.guardrail.ConversationGuardrails;
+import com.taskflow.ai.guardrail.GroundedAnswerOutputGuardrail;
+import com.taskflow.ai.guardrail.GuardrailProperties;
 import com.taskflow.ai.tool.PlanTools;
 import com.taskflow.ai.tool.TaskQueryTools;
 import com.taskflow.ai.tool.TaskTools;
@@ -13,6 +16,7 @@ import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
 import com.taskflow.service.TaskService;
+import dev.langchain4j.guardrail.OutputGuardrail;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.model.chat.ChatModel;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -33,7 +37,7 @@ import java.util.List;
  * read-only tools into the Phase 1 {@code @AiService}.
  */
 @Configuration
-@EnableConfigurationProperties(SupervisorProperties.class)
+@EnableConfigurationProperties({SupervisorProperties.class, GuardrailProperties.class})
 public class MultiAgentConfig {
 
     @Bean
@@ -53,12 +57,22 @@ public class MultiAgentConfig {
                                                      SupervisorProperties properties,
                                                      AgentRunRecorder recorder,
                                                      CurrentUserProvider currentUser,
-                                                     List<DomainRule<PlanCheck>> planRules) {
+                                                     List<DomainRule<PlanCheck>> planRules,
+                                                     GuardrailProperties guardrails) {
         TaskQueryTools taskQueryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock,
                 currentUser);
         PlanTools planTools = new PlanTools(taskService, preferencesService, currentUser, planRules);
+        OutputGuardrail answerGuardrail = guardrails.enabled()
+                ? new GroundedAnswerOutputGuardrail(taskService, currentUser)
+                : null;
         return new TaskFlowAgentFactory(chatModel, taskTools, taskQueryTools, planTools, chatMemoryProvider,
-                contextProvider::render, properties, recorder);
+                contextProvider::render, properties, recorder, answerGuardrail, guardrails.outputRetries());
+    }
+
+    /** Phase 3.3: the turn-level input check and final output check around each supervisor turn. */
+    @Bean
+    public ConversationGuardrails conversationGuardrails(GuardrailProperties properties, TaskService taskService) {
+        return new ConversationGuardrails(properties, taskService);
     }
 
     @Bean

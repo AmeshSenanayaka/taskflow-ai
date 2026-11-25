@@ -90,7 +90,8 @@ class TaskFlowSupervisorTest {
         when(preferencesService.getZoneId(USER)).thenReturn(ZONE);
         when(preferencesService.get(USER)).thenReturn(new PreferencesResponse(ZONE.getId(), 480, NOW));
 
-        TaskTools taskTools = new TaskTools(taskService, preferencesService, currentUser);
+        TaskTools taskTools = new TaskTools(taskService, preferencesService, currentUser,
+                new com.taskflow.ai.guardrail.GuardrailProperties(true, 10, 1));
         TaskQueryTools queryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock, currentUser);
         AgentContextProvider context = new AgentContextProvider(preferencesService, clock, currentUser);
         PlanTools planTools = new PlanTools(taskService, preferencesService, currentUser, List.of(
@@ -105,7 +106,8 @@ class TaskFlowSupervisorTest {
                 id -> MessageWindowChatMemory.builder().id(id).maxMessages(30).build(),
                 context::render, properties, new AgentRunRecorder());
         supervisor = factory.supervisor();
-        service = new MultiAgentService(supervisor);
+        // Guardrails are tested on their own (ConversationGuardrailsTest); here they would query the mocked services.
+        service = new MultiAgentService(supervisor, com.taskflow.ai.guardrail.ConversationGuardrails.disabled());
     }
 
     @Test

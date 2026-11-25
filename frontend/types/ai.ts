@@ -60,6 +60,8 @@ export interface ChatResponse {
   execution?: AgentExecutionInfo;
   /** Phase 3.2: the rule-checked day plan, when the PlanningAgent produced one. */
   plan?: DailyPlan | null;
+  /** Phase 3.3: codes of the guardrails that acted on this turn, e.g. INPUT_OUT_OF_SCOPE. */
+  guardrails?: string[];
 }
 
 /** Mirrors com.taskflow.ai.dto.DailyPlan: a plan that passed every plan rule. */

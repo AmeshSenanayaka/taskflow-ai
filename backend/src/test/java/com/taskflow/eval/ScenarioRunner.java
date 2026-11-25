@@ -275,7 +275,25 @@ public class ScenarioRunner {
 
         checkPlan(expect.plan(), answers, keys, failures);
 
+        Set<String> guardrailsActed = new LinkedHashSet<>();
+        answers.forEach(answer -> nz(answer.guardrails()).forEach(guardrailsActed::add));
+        for (String code : nz(expect.guardrails())) {
+            if (!guardrailsActed.contains(code)) {
+                failures.add("guardrail " + code + " did not act (acted: " + guardrailsActed + ")");
+            }
+        }
+
         List<Task> current = tasks.findAll();
+        if (expect.maxChangedTasks() != null) {
+            long changedTasks = current.stream()
+                    .filter(task -> task.getOwnerId().equals(userId))
+                    .filter(task -> fixture.values().stream().noneMatch(before -> before.equals(Snapshot.of(task))))
+                    .count();
+            if (changedTasks > expect.maxChangedTasks()) {
+                failures.add(changedTasks + " tasks were created or changed, more than the allowed "
+                        + expect.maxChangedTasks());
+            }
+        }
         for (Scenario.TaskExpectation expected : nz(expect.tasks())) {
             checkTask(scenario, expected, current, keys, users, failures);
         }
