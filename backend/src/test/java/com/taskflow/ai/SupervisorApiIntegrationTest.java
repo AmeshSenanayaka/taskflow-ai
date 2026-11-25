@@ -57,22 +57,22 @@ class SupervisorApiIntegrationTest extends AbstractAiIntegrationTest {
     @Test
     void supervisorRoutesToTaskAgentWhichCreatesATaskInTheDatabase() throws Exception {
         String conversation = newConversation();
-        model.invokeAgent("TaskAgent", "Create a high-priority task to review the architecture document on 2026-11-14")
+        model.invokeAgent("TaskAgent", "Create a high-priority task to review the architecture document on 2099-11-14")
                 .toolCall("createTask", """
-                        {"title":"Review the architecture document","priority":"HIGH","dueDate":"2026-11-14"}
+                        {"title":"Review the architecture document","priority":"HIGH","dueDate":"2099-11-14"}
                         """)
-                .text("Created \"Review the architecture document\" (HIGH), due 2026-11-14.")
+                .text("Created \"Review the architecture document\" (HIGH), due 2099-11-14.")
                 .done("Created the task.");
 
         mockMvc.perform(post("/api/ai/supervisor/chat").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"conversationId":"%s",
-                                 "message":"Create a high-priority task to review the architecture document on 2026-11-14"}
+                                 "message":"Create a high-priority task to review the architecture document on 2099-11-14"}
                                 """.formatted(conversation)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.conversationId").value(conversation))
-                .andExpect(jsonPath("$.message").value("Created \"Review the architecture document\" (HIGH), due 2026-11-14."))
+                .andExpect(jsonPath("$.message").value("Created \"Review the architecture document\" (HIGH), due 2099-11-14."))
                 .andExpect(jsonPath("$.dataChanged").value(true))
                 .andExpect(jsonPath("$.execution.requestId").isNotEmpty())
                 .andExpect(jsonPath("$.execution.agents", hasSize(1)))
@@ -83,7 +83,7 @@ class SupervisorApiIntegrationTest extends AbstractAiIntegrationTest {
         assertThat(taskRepository.findAll()).singleElement().satisfies(task -> {
             assertThat(task.getTitle()).isEqualTo("Review the architecture document");
             assertThat(task.getPriority()).isEqualTo(TaskPriority.HIGH);
-            assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2026-11-14"));
+            assertThat(task.getDueDate()).isEqualTo(LocalDate.parse("2099-11-14"));
             // The owner is the authenticated caller; the model never supplied it.
             assertThat(task.getOwnerId()).isEqualTo(aliceId);
         });

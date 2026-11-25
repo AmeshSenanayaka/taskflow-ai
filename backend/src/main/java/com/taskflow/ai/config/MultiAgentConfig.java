@@ -4,8 +4,11 @@ import com.taskflow.ai.agent.TaskFlowSupervisor;
 import com.taskflow.ai.orchestration.AgentContextProvider;
 import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.ai.orchestration.TaskFlowAgentFactory;
+import com.taskflow.ai.tool.PlanTools;
 import com.taskflow.ai.tool.TaskQueryTools;
 import com.taskflow.ai.tool.TaskTools;
+import com.taskflow.rules.DomainRule;
+import com.taskflow.rules.plan.PlanCheck;
 import com.taskflow.security.CurrentUserProvider;
 import com.taskflow.service.DashboardService;
 import com.taskflow.service.PreferencesService;
@@ -17,6 +20,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
+import java.util.List;
 
 /**
  * Spring wiring of the Phase 2 multi-agent system.
@@ -48,10 +52,12 @@ public class MultiAgentConfig {
                                                      AgentContextProvider contextProvider,
                                                      SupervisorProperties properties,
                                                      AgentRunRecorder recorder,
-                                                     CurrentUserProvider currentUser) {
+                                                     CurrentUserProvider currentUser,
+                                                     List<DomainRule<PlanCheck>> planRules) {
         TaskQueryTools taskQueryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock,
                 currentUser);
-        return new TaskFlowAgentFactory(chatModel, taskTools, taskQueryTools, chatMemoryProvider,
+        PlanTools planTools = new PlanTools(taskService, preferencesService, currentUser, planRules);
+        return new TaskFlowAgentFactory(chatModel, taskTools, taskQueryTools, planTools, chatMemoryProvider,
                 contextProvider::render, properties, recorder);
     }
 

@@ -3,6 +3,8 @@ package com.taskflow.dto.request;
 import com.taskflow.enums.TaskPriority;
 import com.taskflow.enums.TaskStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -30,6 +32,11 @@ public record UpdateTaskRequest(
         TaskStatus status,
 
         @Schema(description = "Optional due date (ISO-8601, yyyy-MM-dd). Send null to clear", example = "2026-11-15")
-        LocalDate dueDate
+        LocalDate dueDate,
+
+        @Schema(description = "Optional estimate of the work in minutes (1-1440). Send null to clear", example = "45")
+        @Min(value = 1, message = "Estimated minutes must be at least 1")
+        @Max(value = 1440, message = "Estimated minutes must be at most 1440")
+        Integer estimatedMinutes
 ) {
 }

@@ -37,6 +37,7 @@ export function TaskForm({ mode, defaultValues, onSubmit, onCancel, isSubmitting
     priority: useId(),
     status: useId(),
     dueDate: useId(),
+    estimatedMinutes: useId(),
   };
 
   const form = useForm<TaskFormValues>({
@@ -140,6 +141,22 @@ export function TaskForm({ mode, defaultValues, onSubmit, onCancel, isSubmitting
             {...form.register("dueDate")}
           />
           <FieldError id={`${ids.dueDate}-error`} message={errors.dueDate?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={ids.estimatedMinutes}>Estimate (minutes)</Label>
+          <Input
+            id={ids.estimatedMinutes}
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={1440}
+            placeholder="Optional, e.g. 45"
+            aria-invalid={Boolean(errors.estimatedMinutes)}
+            aria-describedby={errors.estimatedMinutes ? `${ids.estimatedMinutes}-error` : undefined}
+            {...form.register("estimatedMinutes")}
+          />
+          <FieldError id={`${ids.estimatedMinutes}-error`} message={errors.estimatedMinutes?.message} />
         </div>
       </div>
 

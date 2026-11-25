@@ -1,6 +1,7 @@
 package com.taskflow.ai.orchestration;
 
 import com.taskflow.ai.dto.AgentCallInfo;
+import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.ai.dto.ToolCallInfo;
 import com.taskflow.ai.tool.MutatesTasks;
 import com.taskflow.ai.tool.TaskTools;
@@ -63,6 +64,13 @@ public class AgentRunRecorder implements AgentListener {
         /** Latest text answer per sub-agent, in the order the answers were produced. */
         private final Map<String, String> agentOutputs = new LinkedHashMap<>();
         private boolean dataChanged;
+        /** Phase 3.2: the last plan PlanningAgent submitted and the rules accepted, and the submissions so far. */
+        private DailyPlan plan;
+        private int planAttempts;
+
+        public DailyPlan plan() {
+            return plan;
+        }
 
         public List<AgentCallInfo> agents() {
             return List.copyOf(agents);
@@ -83,6 +91,20 @@ public class AgentRunRecorder implements AgentListener {
         public boolean dataChanged() {
             return dataChanged;
         }
+    }
+
+    /** Records a plan that passed the plan rules; the response returns the last one. */
+    public static void recordPlan(DailyPlan plan) {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.plan = plan;
+        }
+    }
+
+    /** Counts a plan submission in the current request and returns its number (1 for the first). */
+    public static int nextPlanAttempt() {
+        Run run = CURRENT.get();
+        return run == null ? 1 : ++run.planAttempts;
     }
 
     /** Starts recording for the current thread. Always pair with {@link #close()} in a finally block. */

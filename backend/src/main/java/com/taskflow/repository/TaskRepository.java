@@ -26,6 +26,13 @@ public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificat
 
     long countByOwnerIdAndStatus(UUID ownerId, TaskStatus status);
 
+    /** Phase 3.2: does the owner have a task not in {@code status} with this title, ignoring case? */
+    boolean existsByOwnerIdAndStatusNotAndTitleIgnoreCase(UUID ownerId, TaskStatus status, String title);
+
+    /** Same, ignoring the task with id {@code excludedId} (the one being changed). */
+    boolean existsByOwnerIdAndStatusNotAndTitleIgnoreCaseAndIdNot(UUID ownerId, TaskStatus status, String title,
+                                                                 UUID excludedId);
+
     /** Loads one of the owner's tasks with a row lock ({@code SELECT ... FOR UPDATE}) for read-modify-write updates. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT t FROM Task t WHERE t.id = :id AND t.ownerId = :ownerId")

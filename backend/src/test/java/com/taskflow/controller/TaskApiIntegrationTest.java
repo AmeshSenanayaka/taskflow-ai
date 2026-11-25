@@ -48,14 +48,14 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
         MvcResult result = mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"title": "Write article", "description": "Phase 0", "dueDate": "2026-11-15"}
+                                {"title": "Write article", "description": "Phase 0", "dueDate": "2099-11-15"}
                                 """))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").isNotEmpty())
                 .andExpect(jsonPath("$.title").value("Write article"))
                 .andExpect(jsonPath("$.priority").value("MEDIUM"))
                 .andExpect(jsonPath("$.status").value("TODO"))
-                .andExpect(jsonPath("$.dueDate").value("2026-11-15"))
+                .andExpect(jsonPath("$.dueDate").value("2099-11-15"))
                 .andExpect(jsonPath("$.createdAt").isNotEmpty())
                 .andExpect(jsonPath("$.completedAt").doesNotExist())
                 .andReturn();
@@ -126,14 +126,14 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": "Updated", "description": "New text", "priority": "HIGH",
-                                 "status": "IN_PROGRESS", "dueDate": "2026-12-01"}
+                                 "status": "IN_PROGRESS", "dueDate": "2099-12-01"}
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Updated"))
                 .andExpect(jsonPath("$.description").value("New text"))
                 .andExpect(jsonPath("$.priority").value("HIGH"))
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
-                .andExpect(jsonPath("$.dueDate").value("2026-12-01"));
+                .andExpect(jsonPath("$.dueDate").value("2099-12-01"));
     }
 
     @Test
@@ -263,7 +263,7 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
         // instant-based storage would shift the day) must leave the stored and returned date untouched.
         MvcResult created = mockMvc.perform(post("/api/tasks").with(alice())
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"title\": \"Submit report\", \"dueDate\": \"2026-11-15\"}"))
+                        .content("{\"title\": \"Submit report\", \"dueDate\": \"2099-11-15\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         UUID id = UUID.fromString(objectMapper.readTree(created.getResponse().getContentAsString()).get("id").asText());
@@ -276,9 +276,9 @@ class TaskApiIntegrationTest extends AbstractIntegrationTest {
 
             mockMvc.perform(get("/api/tasks/{id}", id).with(alice()))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.dueDate").value("2026-11-15"));
+                    .andExpect(jsonPath("$.dueDate").value("2099-11-15"));
 
-            mockMvc.perform(get("/api/tasks").with(alice()).param("dueDate", "2026-11-15"))
+            mockMvc.perform(get("/api/tasks").with(alice()).param("dueDate", "2099-11-15"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.content", hasSize(1)))
                     .andExpect(jsonPath("$.content[0].id").value(id.toString()));

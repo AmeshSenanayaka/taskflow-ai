@@ -58,6 +58,26 @@ export interface ChatResponse {
   pendingConfirmation?: PendingConfirmation | null;
   dataChanged?: boolean;
   execution?: AgentExecutionInfo;
+  /** Phase 3.2: the rule-checked day plan, when the PlanningAgent produced one. */
+  plan?: DailyPlan | null;
+}
+
+/** Mirrors com.taskflow.ai.dto.DailyPlan: a plan that passed every plan rule. */
+export interface DailyPlan {
+  date: string;
+  availableMinutes: number;
+  totalMinutes: number;
+  entries: DailyPlanEntry[];
+}
+
+export interface DailyPlanEntry {
+  taskId: string;
+  title: string;
+  priority: "LOW" | "MEDIUM" | "HIGH";
+  dueDate?: string | null;
+  start: string;
+  end: string;
+  minutes: number;
 }
 
 export interface AiStatus {

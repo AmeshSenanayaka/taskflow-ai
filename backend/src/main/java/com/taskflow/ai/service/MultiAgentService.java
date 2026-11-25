@@ -106,7 +106,8 @@ public class MultiAgentService {
                     run.dataChanged(),
                     new SupervisorChatResponse.Execution(
                             requestId, durationMs, run.agents(), run.toolCalls(), run.llmCalls(),
-                            tokenUsage(run.tokenUsage())));
+                            tokenUsage(run.tokenUsage())),
+                    run.plan());
         } catch (RuntimeException ex) {
             // Tool failures never reach here (they are fed back to the model); this is a model call or the
             // planner failing: rate limit, timeout, bad key, network, unparsable plan. Log detail, return a safe message.

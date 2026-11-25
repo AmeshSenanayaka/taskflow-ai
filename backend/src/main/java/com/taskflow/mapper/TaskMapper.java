@@ -17,7 +17,8 @@ public class TaskMapper {
                 task.getDueDate(),
                 task.getCreatedAt(),
                 task.getUpdatedAt(),
-                task.getCompletedAt()
+                task.getCompletedAt(),
+                task.getEstimatedMinutes()
         );
     }
 }

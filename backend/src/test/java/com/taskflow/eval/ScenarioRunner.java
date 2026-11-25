@@ -3,6 +3,7 @@ package com.taskflow.eval;
 import com.taskflow.ai.ScriptedChatModel;
 import com.taskflow.ai.conversation.ConversationRef;
 import com.taskflow.ai.conversation.ConversationService;
+import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.ai.dto.AgentCallInfo;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.dto.ToolCallInfo;
@@ -156,6 +157,7 @@ public class ScenarioRunner {
             UUID owner = Objects.requireNonNull(users.get(ownerName), "unknown fixture owner " + ownerName);
             Task task = new Task(owner, item.title(), item.description(),
                     item.priority() == null ? TaskPriority.MEDIUM : item.priority(), item.dueDate(), now);
+            task.setEstimatedMinutes(item.estimatedMinutes());
             if (item.status() != null && item.status() != TaskStatus.TODO) {
                 task.changeStatus(item.status(), now);
             }
@@ -271,6 +273,8 @@ public class ScenarioRunner {
             }
         }
 
+        checkPlan(expect.plan(), answers, keys, failures);
+
         List<Task> current = tasks.findAll();
         for (Scenario.TaskExpectation expected : nz(expect.tasks())) {
             checkTask(scenario, expected, current, keys, users, failures);
@@ -298,6 +302,38 @@ public class ScenarioRunner {
             }
         }
         return failures;
+    }
+
+    private static void checkPlan(Scenario.PlanExpectation expected, List<SupervisorChatResponse> answers,
+                                  Map<String, UUID> keys, List<String> failures) {
+        if (expected == null) {
+            return;
+        }
+        DailyPlan plan = null;
+        for (SupervisorChatResponse answer : answers) {
+            if (answer.plan() != null) {
+                plan = answer.plan();
+            }
+        }
+        if (plan == null) {
+            if (Boolean.TRUE.equals(expected.required())) {
+                failures.add("no validated plan was returned");
+            }
+            return;
+        }
+        if (plan.totalMinutes() > plan.availableMinutes()) {
+            failures.add("the plan has " + plan.totalMinutes() + " minutes but only " + plan.availableMinutes()
+                    + " are available");
+        }
+        if (expected.maxTotalMinutes() != null && plan.totalMinutes() > expected.maxTotalMinutes()) {
+            failures.add("the plan has " + plan.totalMinutes() + " minutes, more than " + expected.maxTotalMinutes());
+        }
+        for (String key : nz(expected.excludes())) {
+            UUID excluded = keys.get(key);
+            if (plan.entries().stream().anyMatch(entry -> entry.taskId().equals(excluded))) {
+                failures.add("the plan contains task '" + key + "', which it must not");
+            }
+        }
     }
 
     private static void checkNames(String kind, Scenario.Names expected, Set<String> actual, List<String> failures) {

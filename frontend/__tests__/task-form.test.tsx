@@ -46,6 +46,7 @@ describe("TaskForm validation", () => {
       priority: "MEDIUM",
       status: "TODO",
       dueDate: "2026-11-20",
+      estimatedMinutes: "",
     });
   });
 

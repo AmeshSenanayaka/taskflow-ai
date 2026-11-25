@@ -73,6 +73,7 @@ describe("Task interactions", () => {
       description: null,
       priority: "MEDIUM",
       dueDate: "2026-11-10",
+      estimatedMinutes: null,
     });
     // The sheet closes after a successful create.
     await waitFor(() => expect(screen.queryByRole("heading", { name: "New task" })).not.toBeInTheDocument());

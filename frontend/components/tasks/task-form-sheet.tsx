@@ -14,6 +14,7 @@ function toFormValues(task: Task): Partial<TaskFormValues> {
     priority: task.priority,
     status: task.status,
     dueDate: task.dueDate ?? "",
+    estimatedMinutes: task.estimatedMinutes ? String(task.estimatedMinutes) : "",
   };
 }
 
@@ -31,10 +32,18 @@ export function TaskFormSheet() {
   async function handleSubmit(values: TaskFormValues) {
     const description = values.description.trim() === "" ? null : values.description.trim();
     const dueDate = values.dueDate === "" ? null : values.dueDate;
+    const estimatedMinutes = values.estimatedMinutes.trim() === "" ? null : Number(values.estimatedMinutes);
 
     const result = editingTask
-      ? await updateTask(editingTask.id, { title: values.title, description, priority: values.priority, status: values.status, dueDate })
-      : await createTask({ title: values.title, description, priority: values.priority, dueDate });
+      ? await updateTask(editingTask.id, {
+          title: values.title,
+          description,
+          priority: values.priority,
+          status: values.status,
+          dueDate,
+          estimatedMinutes,
+        })
+      : await createTask({ title: values.title, description, priority: values.priority, dueDate, estimatedMinutes });
 
     if (result) close();
   }

@@ -32,7 +32,7 @@ public record Scenario(
         Expectations expect
 ) {
 
-    public enum Category { GOLDEN, TRAJECTORY, AUTHORIZATION, MEMORY, GUARDRAIL, GOVERNANCE, FLAGSHIP }
+    public enum Category { GOLDEN, TRAJECTORY, AUTHORIZATION, RULES, MEMORY, GUARDRAIL, GOVERNANCE, FLAGSHIP }
 
     public boolean executable() {
         return notApplicable == null;
@@ -84,7 +84,7 @@ public record Scenario(
      * {@code ${task:key}}. {@code owner} defaults to the scenario's user.
      */
     public record FixtureTask(String key, String owner, String title, String description,
-                              TaskPriority priority, TaskStatus status, LocalDate dueDate) {
+                              TaskPriority priority, TaskStatus status, LocalDate dueDate, Integer estimatedMinutes) {
     }
 
     /**
@@ -109,11 +109,21 @@ public record Scenario(
      * @param tasks               expected state of individual tasks
      * @param taskCount           expected number of tasks per owner ("alice", "bob")
      * @param unchanged           fixture keys whose task must be exactly as before
+     * @param plan                the validated day plan returned with the answer (Phase 3.2)
      */
     public record Expectations(Names agents, Names tools, Boolean dataChanged, Integer maxLlmCalls,
                                List<String> responseContains, List<String> responseNotContains,
-                               List<TaskExpectation> tasks, Map<String, Integer> taskCount, List<String> unchanged) {
-        static final Expectations NONE = new Expectations(null, null, null, null, null, null, null, null, null);
+                               List<TaskExpectation> tasks, Map<String, Integer> taskCount, List<String> unchanged,
+                               PlanExpectation plan) {
+        static final Expectations NONE = new Expectations(null, null, null, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * @param required        a validated plan must be returned
+     * @param maxTotalMinutes upper bound on the planned minutes
+     * @param excludes        fixture keys whose task must not be in the plan
+     */
+    public record PlanExpectation(Boolean required, Integer maxTotalMinutes, List<String> excludes) {
     }
 
     /** @param none true when no agent may run at all (the planner answers directly) */

@@ -9,6 +9,9 @@ import com.taskflow.enums.TaskStatus;
 import com.taskflow.exception.TaskNotFoundException;
 import com.taskflow.mapper.TaskMapper;
 import com.taskflow.repository.TaskRepository;
+import com.taskflow.rules.RuleResult;
+import com.taskflow.rules.RuleViolationException;
+import com.taskflow.rules.task.TaskChange;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +23,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,12 +43,16 @@ class TaskServiceTest {
     @Mock
     private TaskRepository taskRepository;
 
+    @Mock
+    private PreferencesService preferencesService;
+
     private TaskService taskService;
 
     @BeforeEach
     void setUp() {
         Clock fixedClock = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
-        taskService = new TaskService(taskRepository, new TaskMapper(), fixedClock);
+        // No rules here: these tests pin down the service's own behaviour. Rules are tested in com.taskflow.rules.
+        taskService = new TaskService(taskRepository, new TaskMapper(), fixedClock, preferencesService, List.of());
     }
 
     @Test
@@ -52,7 +60,7 @@ class TaskServiceTest {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         TaskResponse response = taskService.create(OWNER,
-                new CreateTaskRequest("  Write article  ", "   ", null, null));
+                new CreateTaskRequest("  Write article  ", "   ", null, null, null));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskRepository).save(captor.capture());
@@ -76,7 +84,7 @@ class TaskServiceTest {
         LocalDate due = LocalDate.of(2026, 11, 10);
 
         TaskResponse response = taskService.create(OWNER,
-                new CreateTaskRequest("Deploy", "Push to prod", TaskPriority.HIGH, due));
+                new CreateTaskRequest("Deploy", "Push to prod", TaskPriority.HIGH, due, null));
 
         assertThat(response.priority()).isEqualTo(TaskPriority.HIGH);
         assertThat(response.dueDate()).isEqualTo(due);
@@ -142,7 +150,7 @@ class TaskServiceTest {
         LocalDate due = LocalDate.of(2026, 12, 1);
 
         TaskResponse response = taskService.update(OWNER, task.getId(),
-                new UpdateTaskRequest("New title", "New description", TaskPriority.LOW, TaskStatus.COMPLETED, due));
+                new UpdateTaskRequest("New title", "New description", TaskPriority.LOW, TaskStatus.COMPLETED, due, null));
 
         assertThat(response.title()).isEqualTo("New title");
         assertThat(response.description()).isEqualTo("New description");
@@ -197,7 +205,7 @@ class TaskServiceTest {
     void createAssignsTheTaskToTheCallerPassedByTheController() {
         when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        taskService.create(OWNER, new CreateTaskRequest("Write article", null, null, null));
+        taskService.create(OWNER, new CreateTaskRequest("Write article", null, null, null, null));
 
         ArgumentCaptor<Task> captor = ArgumentCaptor.forClass(Task.class);
         verify(taskRepository).save(captor.capture());
@@ -222,6 +230,39 @@ class TaskServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> taskService.getById(null, UUID.randomUUID()))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aBrokenRuleStopsTheChangeBeforeAnythingIsWritten() {
+        TaskService guarded = new TaskService(taskRepository, new TaskMapper(), Clock.fixed(FIXED_NOW, ZoneOffset.UTC),
+                preferencesService, List.of(new com.taskflow.rules.DomainRule<TaskChange>() {
+                    public String name() {
+                        return "ALWAYS_BROKEN";
+                    }
+
+                    public RuleResult evaluate(TaskChange change) {
+                        return RuleResult.violation("ALWAYS_BROKEN", "title", "Not today.");
+                    }
+                }));
+        Task task = newTask();
+        when(taskRepository.findByIdAndOwnerId(task.getId(), OWNER)).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> guarded.create(OWNER, new CreateTaskRequest("Anything", null, null, null, null)))
+                .isInstanceOf(RuleViolationException.class).hasMessage("Not today.");
+        assertThatThrownBy(() -> guarded.updateStatus(OWNER, task.getId(), TaskStatus.COMPLETED))
+                .isInstanceOf(RuleViolationException.class);
+        verify(taskRepository, never()).save(any());
+        verify(taskRepository, never()).saveAndFlush(any());
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.TODO);
+    }
+
+    @Test
+    void createStoresTheEstimate() {
+        when(taskRepository.save(any(Task.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TaskResponse response = taskService.create(OWNER, new CreateTaskRequest("Estimate me", null, null, null, 45));
+
+        assertThat(response.estimatedMinutes()).isEqualTo(45);
     }
 
     private void stubSaveAndFlush() {

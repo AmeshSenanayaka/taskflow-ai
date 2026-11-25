@@ -77,7 +77,7 @@ class TaskQueryToolsTest {
     @Test
     void findTasksMapsFiltersSortAndLimitAndReportsTruncation() {
         TaskResponse task = new TaskResponse(UUID.randomUUID(), "A", null, TaskPriority.HIGH, TaskStatus.TODO,
-                LocalDate.parse("2026-11-10"), NOW, NOW, null);
+                LocalDate.parse("2026-11-10"), NOW, NOW, null, null);
         when(taskService.list(eq(USER), any(), any(), eq(0), eq(5)))
                 .thenReturn(new PageResponse<>(List.of(task), 0, 5, 12, 3, true, false));
 
