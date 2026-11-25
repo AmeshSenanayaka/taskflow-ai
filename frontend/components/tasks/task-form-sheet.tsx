@@ -4,6 +4,7 @@ import { useTaskForm } from "@/components/providers/app-providers";
 import { TaskForm } from "@/components/tasks/task-form";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useTaskMutations } from "@/hooks/use-task-mutations";
+import type { TaskFormServerErrors } from "@/components/tasks/task-form";
 import type { TaskFormValues } from "@/lib/validations/task";
 import type { Task } from "@/types/task";
 
@@ -29,10 +30,13 @@ export function TaskFormSheet() {
   const editingTask = state.open ? state.task : null;
   const mode = editingTask ? "edit" : "create";
 
-  async function handleSubmit(values: TaskFormValues) {
+  async function handleSubmit(values: TaskFormValues): Promise<TaskFormServerErrors | void> {
     const description = values.description.trim() === "" ? null : values.description.trim();
     const dueDate = values.dueDate === "" ? null : values.dueDate;
     const estimatedMinutes = values.estimatedMinutes.trim() === "" ? null : Number(values.estimatedMinutes);
+    // A refused save (validation 400 or business rule 422) keeps the form open with the message on the field.
+    let fieldErrors: TaskFormServerErrors | undefined;
+    const options = { onFieldErrors: (errors: TaskFormServerErrors) => (fieldErrors = errors) };
 
     const result = editingTask
       ? await updateTask(editingTask.id, {
@@ -42,10 +46,14 @@ export function TaskFormSheet() {
           status: values.status,
           dueDate,
           estimatedMinutes,
-        })
-      : await createTask({ title: values.title, description, priority: values.priority, dueDate, estimatedMinutes });
+        }, options)
+      : await createTask({ title: values.title, description, priority: values.priority, dueDate, estimatedMinutes }, options);
 
-    if (result) close();
+    if (result) {
+      close();
+      return;
+    }
+    return fieldErrors;
   }
 
   return (

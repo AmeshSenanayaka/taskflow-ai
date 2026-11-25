@@ -13,10 +13,23 @@ import { PRIORITY_LABELS, STATUS_LABELS } from "@/lib/task-labels";
 import { defaultTaskFormValues, taskFormSchema, type TaskFormValues } from "@/lib/validations/task";
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/types/task";
 
+/** Server messages per field, e.g. a business rule refusing a past due date (422). */
+export type TaskFormServerErrors = Record<string, string>;
+
+const FORM_FIELDS: ReadonlyArray<keyof TaskFormValues> = [
+  "title",
+  "description",
+  "priority",
+  "status",
+  "dueDate",
+  "estimatedMinutes",
+];
+
 export interface TaskFormProps {
   mode: "create" | "edit";
   defaultValues?: Partial<TaskFormValues>;
-  onSubmit: (values: TaskFormValues) => Promise<void> | void;
+  /** May resolve to the server's field errors; they are shown on the matching fields. */
+  onSubmit: (values: TaskFormValues) => Promise<TaskFormServerErrors | void> | TaskFormServerErrors | void;
   onCancel: () => void;
   isSubmitting?: boolean;
 }
@@ -49,8 +62,17 @@ export function TaskForm({ mode, defaultValues, onSubmit, onCancel, isSubmitting
   const { errors } = form.formState;
   const description = useWatch({ control: form.control, name: "description" }) ?? "";
 
+  async function submit(values: TaskFormValues) {
+    const serverErrors = await onSubmit(values);
+    if (!serverErrors) return;
+    for (const [field, message] of Object.entries(serverErrors)) {
+      const name = FORM_FIELDS.find((candidate) => candidate === field);
+      if (name) form.setError(name, { type: "server", message }, { shouldFocus: true });
+    }
+  }
+
   return (
-    <form onSubmit={form.handleSubmit((values) => onSubmit(values))} className="flex flex-1 flex-col gap-5" noValidate>
+    <form onSubmit={form.handleSubmit(submit)} className="flex flex-1 flex-col gap-5" noValidate>
       <div className="space-y-2">
         <Label htmlFor={ids.title}>Title</Label>
         <Input

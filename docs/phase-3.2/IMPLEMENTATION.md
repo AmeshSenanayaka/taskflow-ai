@@ -42,7 +42,8 @@ Over HTTP a violation is a Problem Detail:
 }
 ```
 
-`errors` has the same shape as validation errors, so the task form shows the message on the field; `violations`
+`errors` has the same shape as validation errors, so the task form shows the message on the field (and a
+toast), and stays open for a correction; `violations`
 carries the stable codes for clients and evaluations.
 
 ## Estimated minutes
