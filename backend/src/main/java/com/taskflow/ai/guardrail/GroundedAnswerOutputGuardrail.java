@@ -55,13 +55,13 @@ public class GroundedAnswerOutputGuardrail implements OutputGuardrail {
         DailyPlan plan = AgentRunRecorder.currentPlan();
         List<GuardrailViolation> violations = AnswerGuard.check(answer, tasks, requestText(request), plan);
         if (violations.isEmpty()) {
-            if (AgentRunRecorder.takeRepairPending()) {
+            if (AgentRunRecorder.completeRepair(answer)) {
                 AgentRunRecorder.recordGuardrail(GuardrailCodes.OUTPUT_REWRITTEN);
             }
             return success();
         }
         violations.forEach(violation -> AgentRunRecorder.recordGuardrail(violation.code()));
-        AgentRunRecorder.markRepairPending();
+        AgentRunRecorder.markRepairPending(answer);
         log.warn("guardrail.agent-output-failed codes={}",
                 violations.stream().map(GuardrailViolation::code).distinct().toList());
         String problems = violations.stream().map(GuardrailViolation::message).collect(Collectors.joining(" "));
@@ -69,7 +69,7 @@ public class GroundedAnswerOutputGuardrail implements OutputGuardrail {
     }
 
     /** Starts every reprompt, so the guardrail can recognise its own message in the next request. */
-    static final String REPROMPT_MARKER = "Your answer failed TaskFlow's automatic checks:";
+    public static final String REPROMPT_MARKER = "Your answer failed TaskFlow's automatic checks:";
 
     static String repairInstructions(List<GuardrailViolation> violations, List<TaskResponse> tasks, DailyPlan plan) {
         String titles = tasks.stream().limit(200).map(task -> "- \"" + task.title() + "\" (" + task.status() + ")")

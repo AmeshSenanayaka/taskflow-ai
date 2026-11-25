@@ -80,6 +80,10 @@ public class AgentRunRecorder implements AgentListener {
         private boolean inputChecked;
         /** An agent's answer failed the output guardrail and the agent was asked to repair it. */
         private boolean repairPending;
+        /** The rejected answer of the pending repair: the one LangChain4j keeps in chat memory. */
+        private String pendingDraft;
+        /** Rejected answer -> repaired answer, for every repair of this request that succeeded. */
+        private final Map<String, String> repairs = new LinkedHashMap<>();
 
         public List<String> guardrails() {
             return List.copyOf(guardrails);
@@ -189,22 +193,44 @@ public class AgentRunRecorder implements AgentListener {
         return run != null && run.inputChecked;
     }
 
-    /** Marks that an agent was asked to repair an answer that failed the output guardrail. */
-    public static void markRepairPending() {
+    /**
+     * Marks that an agent was asked to repair an answer that failed the output guardrail.
+     *
+     * @param draft the rejected answer; the first one of a repair is the one LangChain4j stored in chat memory
+     */
+    public static void markRepairPending(String draft) {
         Run run = CURRENT.get();
         if (run != null) {
+            if (!run.repairPending) {
+                run.pendingDraft = draft;
+            }
             run.repairPending = true;
         }
     }
 
-    /** @return whether a repair was pending, clearing the flag */
-    public static boolean takeRepairPending() {
+    /**
+     * Completes a pending repair with the answer that passed the checks.
+     *
+     * @return whether a repair was pending
+     */
+    public static boolean completeRepair(String repaired) {
         Run run = CURRENT.get();
         if (run == null || !run.repairPending) {
             return false;
         }
+        run.repairs.put(run.pendingDraft, repaired);
         run.repairPending = false;
+        run.pendingDraft = null;
         return true;
+    }
+
+    /**
+     * Rejected answer to repaired answer, for the repairs of the current request. LangChain4j keeps the rejected
+     * answer in chat memory and never stores the repaired one; {@code ConversationMemory} uses this to fix that.
+     */
+    public static Map<String, String> repairs() {
+        Run run = CURRENT.get();
+        return run == null ? Map.of() : Map.copyOf(run.repairs);
     }
 
     /** Counts a plan submission in the current request and returns its number (1 for the first). */

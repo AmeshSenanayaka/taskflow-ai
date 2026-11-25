@@ -27,6 +27,7 @@ import dev.langchain4j.agentic.supervisor.SupervisorContextStrategy;
 import dev.langchain4j.agentic.supervisor.SupervisorResponseStrategy;
 import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.store.memory.chat.InMemoryChatMemoryStore;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -104,7 +105,10 @@ class TaskFlowSupervisorTest {
         TaskFlowAgentFactory factory = new TaskFlowAgentFactory(
                 model, taskTools, queryTools, planTools,
                 id -> MessageWindowChatMemory.builder().id(id).maxMessages(30).build(),
-                context::render, properties, new AgentRunRecorder());
+                context::render, properties, new AgentRunRecorder(),
+                // No agent guardrail here (tested on its own); the planner's memory lives in a store, as in
+                // production (PostgreSQL), because the in-process AgenticScope is evicted after every turn.
+                null, 0, new InMemoryChatMemoryStore());
         supervisor = factory.supervisor();
         // Guardrails are tested on their own (ConversationGuardrailsTest); here they would query the mocked services.
         service = new MultiAgentService(supervisor, com.taskflow.ai.guardrail.ConversationGuardrails.disabled());
@@ -128,6 +132,8 @@ class TaskFlowSupervisorTest {
         assertThat(response.execution().llmCalls()).isEqualTo(4);
         assertThat(response.execution().tokenUsage().totalTokens()).isEqualTo(4 * 120);
         assertThat(model.remainingScript()).isZero();
+        // Phase 3.4: the in-process AgenticScope is evicted after the turn; only chat memory carries over.
+        assertThat(supervisor.getAgenticScope(conversation(USER, "conv-1").memoryKey())).isNull();
 
         List<ChatRequest> requests = model.requests();
         assertThat(requests).hasSize(4);

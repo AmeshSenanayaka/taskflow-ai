@@ -10,6 +10,25 @@ export interface ConversationResponse {
   conversationId: string;
 }
 
+/** GET /api/ai/conversations — one of the signed-in user's conversations, most recent first (Phase 3.4). */
+export interface ConversationSummary {
+  conversationId: string;
+  /** The start of the first message; null before the first message. */
+  title: string | null;
+  mode: AssistantMode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /api/ai/conversations/{id}/messages — one line of the stored transcript (Phase 3.4). */
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  plan?: DailyPlan | null;
+  guardrails?: string[];
+}
+
 /** POST /api/ai/chat and /api/ai/supervisor/chat — conversationId comes from POST /api/ai/conversations. */
 export interface ChatRequest {
   conversationId: string;

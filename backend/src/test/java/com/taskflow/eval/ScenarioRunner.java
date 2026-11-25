@@ -7,6 +7,8 @@ import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.ai.dto.AgentCallInfo;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.dto.ToolCallInfo;
+import com.taskflow.ai.memory.ChatMemoryRepository;
+import com.taskflow.ai.memory.MemoryKey;
 import com.taskflow.ai.service.MultiAgentService;
 import com.taskflow.dto.request.UpdatePreferencesRequest;
 import com.taskflow.entity.Task;
@@ -28,6 +30,8 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -68,6 +72,23 @@ public class ScenarioRunner {
         this.scriptedModel = scriptedModel;
     }
 
+    /** Phase 3.4: builds a fresh MultiAgentService (new agents, nothing in process) to simulate a restart. */
+    private Supplier<MultiAgentService> restarter;
+    /** Phase 3.4: reads the stored chat memory for {@code memoryNotContains}. */
+    private ChatMemoryRepository memoryRepository;
+
+    /**
+     * Enables the persistent-memory scenarios: {@code restartBetweenTurns} and {@code memoryNotContains}.
+     *
+     * @param restarter        builds a MultiAgentService over freshly built agents, as after a backend restart
+     * @param memoryRepository the stored chat memory
+     */
+    public ScenarioRunner withPersistence(Supplier<MultiAgentService> restarter, ChatMemoryRepository memoryRepository) {
+        this.restarter = restarter;
+        this.memoryRepository = memoryRepository;
+        return this;
+    }
+
     public RunResult run(Scenario scenario, int repetition) {
         long started = System.nanoTime();
         List<String> agents = new ArrayList<>();
@@ -101,8 +122,22 @@ public class ScenarioRunner {
             signIn(scenario.userOrDefault());
             ConversationRef conversation = conversations.create(userId);
             List<SupervisorChatResponse> answers = new ArrayList<>();
-            for (String turn : scenario.turns()) {
-                SupervisorChatResponse answer = multiAgentService.chat(conversation, resolve(turn, keys, userId));
+            MultiAgentService service = multiAgentService;
+            int lastTurnFirstRequest = 0;
+            for (int index = 0; index < scenario.turns().size(); index++) {
+                String turn = scenario.turns().get(index);
+                if (index > 0 && Boolean.TRUE.equals(scenario.restartBetweenTurns())) {
+                    if (restarter == null) {
+                        throw new IllegalStateException(scenario.id() + ": restartBetweenTurns needs withPersistence");
+                    }
+                    // Everything in process is new: agents, their chat memory objects and caches. Only the
+                    // database carries the conversation over, exactly as after a backend restart.
+                    service = restarter.get();
+                }
+                if (scriptedModel != null) {
+                    lastTurnFirstRequest = scriptedModel.requests().size();
+                }
+                SupervisorChatResponse answer = service.chat(conversation, resolve(turn, keys, userId));
                 answers.add(answer);
                 responses.add(answer.message());
                 if (answer.execution() != null) {
@@ -117,6 +152,7 @@ public class ScenarioRunner {
             }
 
             List<String> failures = judge(scenario, answers, fixture, keys, users, llmCalls);
+            checkMemory(scenario, conversation, lastTurnFirstRequest, failures);
             if (scriptedModel != null && scriptedModel.remainingScript() > 0) {
                 failures.add("the script was not fully used (" + scriptedModel.remainingScript()
                         + " steps left): the system took a different route than scripted");
@@ -320,6 +356,33 @@ public class ScenarioRunner {
             }
         }
         return failures;
+    }
+
+    /** Phase 3.4: what the model saw in the last turn, and what was stored for the conversation. */
+    private void checkMemory(Scenario scenario, ConversationRef conversation, int lastTurnFirstRequest,
+                             List<String> failures) {
+        Scenario.Expectations expect = scenario.expectOrEmpty();
+        if (scriptedModel != null && !nz(expect.contextContains()).isEmpty()) {
+            String seen = lower(scriptedModel.requests().subList(lastTurnFirstRequest, scriptedModel.requests().size())
+                    .stream().map(request -> String.valueOf(request.messages())).collect(Collectors.joining("\n")));
+            for (String fragment : expect.contextContains()) {
+                if (!seen.contains(lower(fragment))) {
+                    failures.add("the model did not see \"" + fragment + "\" in the last turn (memory not loaded)");
+                }
+            }
+        }
+        if (!nz(expect.memoryNotContains()).isEmpty()) {
+            if (memoryRepository == null) {
+                throw new IllegalStateException(scenario.id() + ": memoryNotContains needs withPersistence");
+            }
+            String stored = lower(String.join("\n", memoryRepository.loadAll(
+                    new MemoryKey(conversation.ownerId(), conversation.id()))));
+            for (String fragment : expect.memoryNotContains()) {
+                if (stored.contains(lower(fragment))) {
+                    failures.add("the stored chat memory contains \"" + fragment + "\", which must not be kept");
+                }
+            }
+        }
     }
 
     private static void checkPlan(Scenario.PlanExpectation expected, List<SupervisorChatResponse> answers,

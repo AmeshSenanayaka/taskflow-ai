@@ -12,6 +12,9 @@ vi.mock("@/lib/api/ai", () => ({
   aiApi: {
     status: vi.fn(),
     startConversation: vi.fn(),
+    listConversations: vi.fn(),
+    conversationMessages: vi.fn(),
+    deleteConversation: vi.fn(),
     chat: vi.fn(),
     supervise: vi.fn(),
     agents: vi.fn(),
@@ -56,6 +59,8 @@ describe("AssistantChat", () => {
     mockedApi.status.mockResolvedValue({ available: true, model: "gpt-4o-mini" });
     // Phase 3.0: the server issues a fresh conversation id for each new conversation.
     mockedApi.startConversation.mockImplementation(async () => ({ conversationId: crypto.randomUUID() }));
+    // Phase 3.4: no stored conversations unless a test says otherwise.
+    mockedApi.listConversations.mockResolvedValue([]);
   });
 
   it("defaults to the supervisor and routes messages to the supervisor endpoint", async () => {
@@ -282,5 +287,59 @@ describe("AssistantChat", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("not configured");
     expect(screen.getByLabelText("Message the assistant")).toBeDisabled();
+  });
+  describe("stored conversations (Phase 3.4)", () => {
+    const stored = {
+      conversationId: "conv-stored-1",
+      title: "Plan my day",
+      mode: "supervisor" as const,
+      createdAt: "2026-11-09T03:30:00Z",
+      updatedAt: "2026-11-09T03:31:00Z",
+    };
+
+    it("lists stored conversations and reopens one with its transcript and mode", async () => {
+      mockedApi.listConversations.mockResolvedValue([stored]);
+      mockedApi.conversationMessages.mockResolvedValue([
+        { role: "user", content: "Plan my day", createdAt: "2026-11-09T03:30:00Z" },
+        { role: "assistant", content: "Here is your plan.", createdAt: "2026-11-09T03:30:01Z", guardrails: [] },
+      ]);
+      const user = userEvent.setup();
+      renderWithProviders(<AssistantChat />);
+
+      await user.click(await screen.findByRole("button", { name: /^Plan my day/ }));
+
+      await waitFor(() => expect(screen.getByTestId("message-assistant")).toHaveTextContent("Here is your plan."));
+      expect(mockedApi.conversationMessages).toHaveBeenCalledWith("conv-stored-1");
+      expect(screen.getByTestId("active-mode")).toHaveTextContent("TaskFlow Supervisor");
+
+      mockedApi.supervise.mockResolvedValueOnce(reply({ conversationId: "conv-stored-1", message: "Updated." }));
+      await typeAndSend("Move the review to 11:00");
+      await waitFor(() =>
+        expect(mockedApi.supervise).toHaveBeenCalledWith({ conversationId: "conv-stored-1", message: "Move the review to 11:00" }),
+      );
+      expect(mockedApi.startConversation).not.toHaveBeenCalled();
+    });
+
+    it("deletes a conversation after confirmation", async () => {
+      mockedApi.listConversations.mockResolvedValueOnce([stored]).mockResolvedValue([]);
+      mockedApi.deleteConversation.mockResolvedValue(undefined);
+      const user = userEvent.setup();
+      renderWithProviders(<AssistantChat />);
+
+      await user.click(await screen.findByRole("button", { name: "Delete conversation Plan my day" }));
+      await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+      await waitFor(() => expect(mockedApi.deleteConversation).toHaveBeenCalledWith("conv-stored-1"));
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^Plan my day/ })).not.toBeInTheDocument());
+    });
+
+    it("starts new conversations in the selected mode", async () => {
+      mockedApi.chat.mockResolvedValueOnce(reply({ message: "Hi." }));
+      renderWithProviders(<AssistantChat />);
+
+      await typeAndSend("Hello");
+
+      await waitFor(() => expect(mockedApi.startConversation).toHaveBeenCalledWith("agent"));
+    });
   });
 });

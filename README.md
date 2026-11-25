@@ -1,4 +1,4 @@
-# TaskFlow AI — Phase 3.3
+# TaskFlow AI — Phase 3.4
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
 **AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system** in
@@ -18,8 +18,9 @@ This repository accompanies the Medium article series
 | Phase 3.0 | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user | ✅ Implemented |
 | Phase 3.1 | Evaluation framework: scenario dataset, scripted regression tier, opt-in live-model baseline, reproducible reports | ✅ Implemented |
 | Phase 3.2 | Deterministic rules: task rules for every write, estimated minutes, structured rule-checked day plans | ✅ Implemented |
-| **Phase 3.3** | Guardrails: input scope and injection checks, untrusted tool data, a write limit per message, grounded output checks on each agent (LangChain4j `OutputGuardrail` with one reprompt) and on the final answer, with a safe fallback (this repository state) | ✅ Implemented |
-| Phase 3.4–3.5 | Isolated persistent memory, runtime AI governance | Planned |
+| **Phase 3.3** | Guardrails: input scope and injection checks, untrusted tool data, a write limit per message, grounded output checks on each agent (LangChain4j `OutputGuardrail` with one reprompt) and on the final answer, with a safe fallback | ✅ Implemented |
+| **Phase 3.4** | Isolated persistent memory: chat memory in PostgreSQL per user, conversation and agent, staged commits (a rejected answer is never remembered), transcript, conversation list with resume and delete, 30-day retention (this repository state) | ✅ Implemented |
+| Phase 3.5 | Runtime AI governance | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -413,9 +414,13 @@ npm start
 | `OPENAI_TEMPERATURE` | `0.2` | Sampling temperature |
 | `OPENAI_LOG_REQUESTS` / `OPENAI_LOG_RESPONSES` | `false` | Log full LLM request/response bodies (development only) |
 | `AI_MEMORY_MAX_MESSAGES` | `30` | Messages kept per conversation (sliding window), TaskAgent |
+| `AI_MEMORY_RETENTION` | `30d` | Phase 3.4: conversations without activity for this long are deleted with their memory and transcript |
+| `AI_MEMORY_MAX_CONVERSATIONS` | `100` | Phase 3.4: conversations kept per user; the least recently used are deleted beyond this |
+| `AI_MEMORY_MAX_STORED_BYTES` | `262144` | Phase 3.4: upper bound on one stored memory window (JSON characters) |
+| `AI_MEMORY_CLEANUP_INTERVAL` | `PT1H` | Phase 3.4: how often the retention job runs |
 | `AI_GUARDRAILS_ENABLED` | `true` | Phase 3.3: input, tool and output guardrails |
 | `AI_GUARDRAILS_MAX_WRITES` | `10` | Phase 3.3: task changes one assistant message may make |
-| `AI_GUARDRAILS_OUTPUT_RETRIES` | `1` | Phase 3.3: rewrites of a failed answer before the safe fallback |
+| `AI_GUARDRAILS_OUTPUT_RETRIES` | `1` | Phase 3.3: reprompts of an agent whose answer failed the output check, before the safe fallback |
 | `AI_SUPERVISOR_MAX_AGENT_INVOCATIONS` | `5` | Phase 2: sub-agent calls allowed per message (each costs ≥ 2 LLM calls) |
 | `AI_SUPERVISOR_MAX_TOOL_ROUND_TRIPS` | `8` | Phase 2: tool calls allowed inside one sub-agent invocation |
 | `AI_SUPERVISOR_MEMORY_MAX_MESSAGES` | `20` | Phase 2: the supervisor's own planning memory per conversation |
@@ -483,7 +488,10 @@ The curl examples below assume that token is in `$TOKEN`.
 | `GET` | `/api/preferences` | Read preferences | `200` |
 | `PUT` | `/api/preferences` | Update timezone and daily available minutes | `200` |
 | `GET` | `/api/ai/status` | Whether the assistant is configured (`available`, `model`) | `200` |
-| `POST` | `/api/ai/conversations` | Start a conversation; returns a server-issued `conversationId` owned by the caller (Phase 3.0) | `201` |
+| `POST` | `/api/ai/conversations?mode=supervisor\|agent` | Start a conversation; returns a server-issued `conversationId` owned by the caller (Phase 3.0; `mode` since 3.4) | `201` |
+| `GET` | `/api/ai/conversations` | The caller's conversations, most recent first (Phase 3.4) | `200` |
+| `GET` | `/api/ai/conversations/{id}/messages` | The stored transcript of one of the caller's conversations (Phase 3.4) | `200` / `404` |
+| `DELETE` | `/api/ai/conversations/{id}` | Delete a conversation with its memory and transcript (Phase 3.4) | `204` / `404` |
 | `POST` | `/api/ai/chat` | Send a message to the single `TaskAgent` (Phase 1) | `200` |
 | `POST` | `/api/ai/supervisor/chat` | Send a message to the `TaskFlowSupervisor`, which routes to the specialised agents (Phase 2) | `200` |
 | `GET` | `/api/ai/agents` | The agents behind the supervisor (name, description, whether they can modify tasks) | `200` |
@@ -745,8 +753,11 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 - **Phase 3.3 — Guardrails (done).** Off-topic and prompt-injection messages answered without a model call, task text
   marked as untrusted data, at most 10 task changes per message, and answers checked against the user's real tasks
   and the checked plan (each agent repairs its answer once through a LangChain4j reprompt, then a safe fallback). See [`docs/phase-3.3/IMPLEMENTATION.md`](docs/phase-3.3/IMPLEMENTATION.md).
-- **Phase 3.4–3.5 — Reliable and governed agentic AI.** 3.4 isolated persistent memory,
-  3.5 runtime AI governance (execution budgets, auditing and human approval of sensitive actions).
+- **Phase 3.4 — Isolated persistent memory (done).** Chat memory stored in PostgreSQL per user, conversation and agent,
+  committed only when a turn succeeds (a rejected answer, a guardrail reprompt or a failed turn is never remembered),
+  a transcript with resume and delete in the UI, and 30-day retention. See
+  [`docs/phase-3.4/IMPLEMENTATION.md`](docs/phase-3.4/IMPLEMENTATION.md).
+- **Phase 3.5 — Runtime AI governance.** Execution budgets, auditing and human approval of sensitive actions.
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),
 [`docs/phase-1/IMPLEMENTATION.md`](docs/phase-1/IMPLEMENTATION.md) and

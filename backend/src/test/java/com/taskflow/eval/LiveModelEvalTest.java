@@ -56,6 +56,14 @@ class LiveModelEvalTest extends AbstractIntegrationTest {
     private TaskRepository tasks;
     @Autowired
     private MutableClock clock;
+    @Autowired
+    private com.taskflow.ai.orchestration.TaskFlowAgentFactory agentFactory;
+    @Autowired
+    private com.taskflow.ai.guardrail.ConversationGuardrails conversationGuardrails;
+    @Autowired
+    private com.taskflow.ai.memory.ConversationMemory conversationMemory;
+    @Autowired
+    private com.taskflow.ai.memory.ChatMemoryRepository chatMemoryRepository;
 
     @Value("${langchain4j.open-ai.chat-model.model-name:unknown}")
     private String modelName;
@@ -69,7 +77,9 @@ class LiveModelEvalTest extends AbstractIntegrationTest {
         Set<String> only = Arrays.stream(System.getProperty("eval.scenarios", "").split(","))
                 .map(String::trim).filter(id -> !id.isEmpty()).collect(Collectors.toSet());
         ScenarioRunner runner = new ScenarioRunner(multiAgentService, conversations, userAccounts, preferences, tasks,
-                clock, null);
+                clock, null)
+                .withPersistence(() -> new MultiAgentService(agentFactory.supervisor(), conversationGuardrails,
+                        conversationMemory, conversations), chatMemoryRepository);
 
         List<RunResult> results = new ArrayList<>();
         for (Scenario scenario : dataset.scenarios()) {

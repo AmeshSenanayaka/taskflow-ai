@@ -49,10 +49,18 @@ taskflow:
   ai:
     # Upper bound on LLM -> tool -> LLM round trips per user message.
     max-tool-round-trips: ${AI_MAX_TOOL_ROUND_TRIPS:8}
+    # Phase 3.4: conversation memory is stored in PostgreSQL (ai_chat_memory) with a transcript (ai_chat_messages).
     memory:
+      # TaskAgent's sliding window: the messages the model sees.
       max-messages: ${AI_MEMORY_MAX_MESSAGES:30}
-      retention: ${AI_MEMORY_RETENTION:2h}
-      max-conversations: ${AI_MEMORY_MAX_CONVERSATIONS:500}
+      # Conversations without activity for this long are deleted with their memory and transcript.
+      retention: ${AI_MEMORY_RETENTION:30d}
+      # Conversations kept per user; the least recently used are deleted beyond this.
+      max-conversations: ${AI_MEMORY_MAX_CONVERSATIONS:100}
+      # Upper bound on one stored memory window (characters of JSON); the oldest messages are dropped above it.
+      max-stored-bytes: ${AI_MEMORY_MAX_STORED_BYTES:262144}
+      # How often the retention job runs (ISO-8601 duration).
+      cleanup-interval: ${AI_MEMORY_CLEANUP_INTERVAL:PT1H}
     confirmation:
       ttl: ${AI_CONFIRMATION_TTL:5m}
     # Phase 2: TaskFlowSupervisor + PriorityAgent / PlanningAgent / SummaryAgent (+ TaskAgent as a sub-agent).

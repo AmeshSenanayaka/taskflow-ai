@@ -1,8 +1,10 @@
 package com.taskflow.ai.config;
 
+import com.taskflow.ai.memory.MemoryProperties;
+import com.taskflow.ai.memory.PostgresChatMemoryStore;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -15,18 +17,20 @@ import org.springframework.context.annotation.Configuration;
  * messages (the system message is always kept), so the agent can resolve follow-ups such as "change its
  * priority to LOW" without the whole transcript growing without bound.
  * <p>
- * Phase 1 keeps memory in process (lost on restart). A persistent {@code ChatMemoryStore} can be plugged in
- * later without touching the agent.
+ * Since Phase 3.4 the window is stored in PostgreSQL ({@link PostgresChatMemoryStore}, namespace
+ * {@code task-agent}), so it survives restarts; the agent itself did not change. The same provider serves TaskAgent
+ * as the Phase 1 agent and as the supervisor's sub-agent.
  */
 @Configuration
 public class AiConfig {
 
     @Bean
-    public ChatMemoryProvider chatMemoryProvider(
-            @Value("${taskflow.ai.memory.max-messages:30}") int maxMessages) {
+    public ChatMemoryProvider chatMemoryProvider(@Qualifier("taskAgentMemoryStore") PostgresChatMemoryStore taskAgentMemoryStore,
+                                                 MemoryProperties properties) {
         return conversationId -> MessageWindowChatMemory.builder()
                 .id(conversationId)
-                .maxMessages(maxMessages)
+                .maxMessages(properties.maxMessages())
+                .chatMemoryStore(taskAgentMemoryStore)
                 .build();
     }
 }
