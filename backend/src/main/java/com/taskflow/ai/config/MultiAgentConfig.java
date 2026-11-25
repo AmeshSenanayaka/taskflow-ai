@@ -7,6 +7,7 @@ import com.taskflow.ai.orchestration.TaskFlowAgentFactory;
 import com.taskflow.ai.guardrail.ConversationGuardrails;
 import com.taskflow.ai.guardrail.GroundedAnswerOutputGuardrail;
 import com.taskflow.ai.guardrail.GuardrailProperties;
+import com.taskflow.ai.memory.PostgresChatMemoryStore;
 import com.taskflow.ai.tool.PlanTools;
 import com.taskflow.ai.tool.TaskQueryTools;
 import com.taskflow.ai.tool.TaskTools;
@@ -19,6 +20,7 @@ import com.taskflow.service.TaskService;
 import dev.langchain4j.guardrail.OutputGuardrail;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.model.chat.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -58,7 +60,9 @@ public class MultiAgentConfig {
                                                      AgentRunRecorder recorder,
                                                      CurrentUserProvider currentUser,
                                                      List<DomainRule<PlanCheck>> planRules,
-                                                     GuardrailProperties guardrails) {
+                                                     GuardrailProperties guardrails,
+                                                     @Qualifier("supervisorMemoryStore")
+                                                     PostgresChatMemoryStore supervisorMemoryStore) {
         TaskQueryTools taskQueryTools = new TaskQueryTools(taskService, dashboardService, preferencesService, clock,
                 currentUser);
         PlanTools planTools = new PlanTools(taskService, preferencesService, currentUser, planRules);
@@ -66,7 +70,8 @@ public class MultiAgentConfig {
                 ? new GroundedAnswerOutputGuardrail(taskService, currentUser)
                 : null;
         return new TaskFlowAgentFactory(chatModel, taskTools, taskQueryTools, planTools, chatMemoryProvider,
-                contextProvider::render, properties, recorder, answerGuardrail, guardrails.outputRetries());
+                contextProvider::render, properties, recorder, answerGuardrail, guardrails.outputRetries(),
+                supervisorMemoryStore);
     }
 
     /** Phase 3.3: the turn-level input check and final output check around each supervisor turn. */

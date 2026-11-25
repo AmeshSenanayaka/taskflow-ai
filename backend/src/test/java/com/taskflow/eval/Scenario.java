@@ -18,6 +18,8 @@ import java.util.Map;
  *
  * @param notApplicable set when the scenario describes behaviour a later milestone adds; it is listed in every report
  *                      but never executed and never counted
+ * @param restartBetweenTurns Phase 3.4: rebuild every agent between turns, so only the database carries the
+ *                      conversation over, as after a backend restart
  */
 public record Scenario(
         String id,
@@ -29,7 +31,8 @@ public record Scenario(
         List<FixtureTask> fixture,
         List<String> turns,
         List<ScriptStep> script,
-        Expectations expect
+        Expectations expect,
+        Boolean restartBetweenTurns
 ) {
 
     public enum Category { GOLDEN, TRAJECTORY, AUTHORIZATION, RULES, MEMORY, GUARDRAIL, GOVERNANCE, FLAGSHIP }
@@ -113,13 +116,17 @@ public record Scenario(
      * @param plan                the validated day plan returned with the answer (Phase 3.2)
      * @param guardrails          guardrail codes that must have acted, over all turns (Phase 3.3)
      * @param maxChangedTasks     upper bound on the user's tasks created or changed, over all turns (Phase 3.3)
+     * @param contextContains     fragments the model must have seen in the last turn, i.e. loaded from memory
+     *                            (Phase 3.4, scripted tier only)
+     * @param memoryNotContains   fragments that must not be in the conversation's stored chat memory (Phase 3.4)
      */
     public record Expectations(Names agents, Names tools, Boolean dataChanged, Integer maxLlmCalls,
                                List<String> responseContains, List<String> responseNotContains,
                                List<TaskExpectation> tasks, Map<String, Integer> taskCount, List<String> unchanged,
-                               PlanExpectation plan, List<String> guardrails, Integer maxChangedTasks) {
+                               PlanExpectation plan, List<String> guardrails, Integer maxChangedTasks,
+                               List<String> contextContains, List<String> memoryNotContains) {
         static final Expectations NONE = new Expectations(null, null, null, null, null, null, null, null, null, null,
-                null, null);
+                null, null, null, null);
     }
 
     /**

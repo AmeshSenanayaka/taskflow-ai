@@ -6,17 +6,21 @@ import com.taskflow.ai.agent.SummaryAgent;
 import com.taskflow.ai.agent.TaskAgent;
 import com.taskflow.ai.agent.TaskFlowSupervisor;
 import com.taskflow.ai.conversation.ConversationRef;
+import com.taskflow.ai.conversation.ConversationService;
 import com.taskflow.ai.dto.AgentDescriptor;
+import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.ai.dto.SupervisorChatResponse;
+import com.taskflow.ai.exception.AiServiceException;
 import com.taskflow.ai.guardrail.ConversationGuardrails;
 import com.taskflow.ai.guardrail.GuardrailCodes;
-import com.taskflow.ai.exception.AiServiceException;
+import com.taskflow.ai.memory.ConversationMemory;
 import com.taskflow.ai.orchestration.AgentRunRecorder;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.guardrail.GuardrailException;
 import dev.langchain4j.model.output.TokenUsage;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
@@ -32,7 +36,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>
  * Responsibilities, in order: serialise messages of the same conversation (two concurrent turns would
  * interleave the shared chat memories), tag the logs with a request id and the conversation id, record the
- * agent/tool activity through {@link AgentRunRecorder}, and translate provider failures into a user-safe
+ * agent/tool activity through {@link AgentRunRecorder}, apply the turn-level guardrails (3.3), commit or discard
+ * the turn's chat memory and append it to the transcript (3.4), and translate provider failures into a user-safe
  * {@link AiServiceException}. No prompt or routing logic lives here; that is the supervisor's job.
  */
 @Slf4j
@@ -57,10 +62,23 @@ public class MultiAgentService {
     }
 
     private final ConversationGuardrails guardrails;
+    /** Phase 3.4: staged chat-memory commits, or null (in-process memory, for unit tests of the agent loop). */
+    private final ConversationMemory memory;
+    /** Phase 3.4: the transcript, or null (for unit tests of the agent loop). */
+    private final ConversationService conversations;
 
+    /** Without persistence: for unit tests of the agent loop. */
     public MultiAgentService(TaskFlowSupervisor supervisor, ConversationGuardrails guardrails) {
+        this(supervisor, guardrails, null, null);
+    }
+
+    @Autowired
+    public MultiAgentService(TaskFlowSupervisor supervisor, ConversationGuardrails guardrails,
+                             ConversationMemory memory, ConversationService conversations) {
         this.supervisor = supervisor;
         this.guardrails = guardrails;
+        this.memory = memory;
+        this.conversations = conversations;
     }
 
     /**
@@ -99,10 +117,16 @@ public class MultiAgentService {
             var refusal = guardrails.checkInput(message);
             if (refusal.isPresent()) {
                 log.info("guardrail.input code={}", refusal.get().code());
+                // The refusal is part of the transcript the user sees, but never part of the model's memory.
+                recordTurn(conversation, message, refusal.get().reply(), null, List.of(refusal.get().code()));
                 return new SupervisorChatResponse(conversationId, refusal.get().reply(), false,
                         new SupervisorChatResponse.Execution(requestId, (System.nanoTime() - started) / 1_000_000,
                                 List.of(), List.of(), 0, null),
                         null, List.of(refusal.get().code()));
+            }
+            // Phase 3.4: from here on, chat-memory writes are staged until the answer is known to be good.
+            if (memory != null) {
+                memory.begin();
             }
             String answer;
             try {
@@ -124,6 +148,17 @@ public class MultiAgentService {
             }
             // Phase 3.3 final check on the combined answer (each agent already repaired its own): show it or fall back.
             answer = guardrails.checkOutput(conversation.ownerId(), message, answer, run.plan(), run.dataChanged());
+            // Phase 3.4 staged commit: a rejected answer never becomes conversation memory.
+            boolean rejected = run.guardrails().contains(GuardrailCodes.OUTPUT_FALLBACK)
+                    || FALLBACK_MESSAGE.equals(answer);
+            if (memory != null) {
+                if (rejected) {
+                    memory.discard();
+                } else {
+                    memory.commit();
+                }
+            }
+            recordTurn(conversation, message, answer, run.plan(), run.guardrails());
             long durationMs = (System.nanoTime() - started) / 1_000_000;
             log.info("supervisor.completed durationMs={} llmCalls={} agents={} tools={} dataChanged={}",
                     durationMs,
@@ -148,7 +183,24 @@ public class MultiAgentService {
                     translated.status(), run.agents().stream().map(a -> a.name()).toList(), ex.toString(), ex);
             throw translated;
         } finally {
+            // A turn that failed (model error, timeout) leaves memory as it was; a no-op after a commit.
+            if (memory != null) {
+                memory.discard();
+            }
             AgentRunRecorder.close();
+        }
+    }
+
+    /** Appends the turn to the transcript; a failure there is logged, the user still gets the answer. */
+    private void recordTurn(ConversationRef conversation, String message, String answer,
+                            DailyPlan plan, List<String> guardrailCodes) {
+        if (conversations == null) {
+            return;
+        }
+        try {
+            conversations.recordTurn(conversation, message, answer, plan, guardrailCodes);
+        } catch (RuntimeException ex) {
+            log.error("conversation.transcript-failed error={}", ex.toString(), ex);
         }
     }
 

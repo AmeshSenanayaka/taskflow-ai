@@ -4,7 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDataRefresh } from "@/components/providers/app-providers";
 import { ApiError, getErrorMessage } from "@/lib/api/client";
 import { aiApi } from "@/lib/api/ai";
-import type { AgentExecutionInfo, AiStatus, AssistantMode, ChatResponse, DailyPlan, PendingConfirmation } from "@/types/ai";
+import type {
+  AgentExecutionInfo,
+  AiStatus,
+  AssistantMode,
+  ChatResponse,
+  ConversationMessage,
+  ConversationSummary,
+  DailyPlan,
+  PendingConfirmation,
+} from "@/types/ai";
 
 export type ConfirmationState = "pending" | "approved" | "rejected" | "expired";
 
@@ -59,6 +68,18 @@ function persist(state: PersistedState) {
   }
 }
 
+/** A stored transcript line as a chat message (Phase 3.4: resuming a conversation). */
+function fromTranscript(message: ConversationMessage, mode: AssistantMode): AssistantMessage {
+  return {
+    id: newId(),
+    role: message.role,
+    content: message.content,
+    mode: message.role === "assistant" ? mode : undefined,
+    plan: message.plan ?? null,
+    guardrails: message.guardrails ?? [],
+  };
+}
+
 function newId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : String(Date.now() + Math.random());
 }
@@ -72,6 +93,9 @@ function newId(): string {
  * that routes to TaskAgent, PriorityAgent, PlanningAgent and SummaryAgent. The backend keeps a separate chat
  * memory per entry point, so switching mode starts a new conversation instead of showing a transcript the
  * other agent has never seen.
+ *
+ * Phase 3.4: conversations are stored on the server. The hook lists them, reopens one (its transcript and mode)
+ * and deletes them; the model's memory of a reopened conversation is restored by the backend, not by the browser.
  */
 export function useAssistant() {
   const { invalidate } = useDataRefresh();
@@ -81,7 +105,23 @@ export function useAssistant() {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [conversationsError, setConversationsError] = useState<string | null>(null);
+  const [isOpening, setIsOpening] = useState(false);
   const hydrated = useRef(false);
+
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await aiApi.listConversations());
+      setConversationsError(null);
+    } catch (caught) {
+      setConversationsError(getErrorMessage(caught));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshConversations();
+  }, [refreshConversations]);
 
   // Hydrate from sessionStorage after mount. Reading storage during render would make the
   // statically prerendered HTML differ from the first client render, so this is the one place a
@@ -127,8 +167,10 @@ export function useAssistant() {
       ]);
       // The Phase 1 endpoint does not report dataChanged, so refresh after every reply in that case.
       if (response.dataChanged ?? true) invalidate();
+      // The conversation's title and last activity changed.
+      void refreshConversations();
     },
-    [invalidate],
+    [invalidate, refreshConversations],
   );
 
   const send = useCallback(
@@ -145,7 +187,7 @@ export function useAssistant() {
       try {
         let id = conversationId;
         if (!id) {
-          id = (await aiApi.startConversation()).conversationId;
+          id = (await aiApi.startConversation(mode)).conversationId;
           setConversationId(id);
         }
         const request = { conversationId: id, message };
@@ -214,6 +256,44 @@ export function useAssistant() {
     [mode, newConversation],
   );
 
+  /** Reopens a stored conversation: its transcript, its mode and (on the server) the model's memory of it. */
+  const openConversation = useCallback(
+    async (summary: ConversationSummary) => {
+      if (isSending || isOpening) return;
+      setError(null);
+      setIsOpening(true);
+      try {
+        const transcript = await aiApi.conversationMessages(summary.conversationId);
+        setMode(summary.mode);
+        setConversationId(summary.conversationId);
+        setMessages(transcript.map((message) => fromTranscript(message, summary.mode)));
+      } catch (caught) {
+        setError(getErrorMessage(caught));
+        // Gone (deleted elsewhere or expired by retention): drop it from the list.
+        if (caught instanceof ApiError && caught.isNotFound) void refreshConversations();
+      } finally {
+        setIsOpening(false);
+      }
+    },
+    [isOpening, isSending, refreshConversations],
+  );
+
+  /** Deletes a stored conversation with its memory and transcript; the open one is closed. */
+  const deleteConversation = useCallback(
+    async (id: string) => {
+      setError(null);
+      try {
+        await aiApi.deleteConversation(id);
+        if (id === conversationId) newConversation();
+      } catch (caught) {
+        if (!(caught instanceof ApiError && caught.isNotFound)) setError(getErrorMessage(caught));
+      } finally {
+        void refreshConversations();
+      }
+    },
+    [conversationId, newConversation, refreshConversations],
+  );
+
   const retryLast = useCallback(() => {
     const failed = [...messages].reverse().find((item) => item.failed);
     if (failed) void send(failed.content);
@@ -232,5 +312,11 @@ export function useAssistant() {
     reject: (messageId: string, confirmation: PendingConfirmation) => decide(messageId, confirmation, "reject"),
     newConversation,
     retryLast,
+    conversations,
+    conversationsError,
+    isOpening,
+    openConversation,
+    deleteConversation,
+    refreshConversations,
   };
 }

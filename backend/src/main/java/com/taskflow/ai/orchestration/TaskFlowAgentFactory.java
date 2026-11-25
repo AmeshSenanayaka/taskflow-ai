@@ -17,6 +17,7 @@ import dev.langchain4j.guardrail.config.OutputGuardrailsConfig;
 import dev.langchain4j.memory.chat.ChatMemoryProvider;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import dev.langchain4j.service.tool.ToolArgumentsErrorHandler;
 import dev.langchain4j.service.tool.ToolErrorHandlerResult;
 import dev.langchain4j.service.tool.ToolExecutionErrorHandler;
@@ -61,6 +62,8 @@ public class TaskFlowAgentFactory {
     private final OutputGuardrail answerGuardrail;
     /** Phase 3.3: LangChain4j's maxRetries (counts the first answer: 2 = one reprompt). */
     private final int outputMaxRetries;
+    /** Phase 3.4: where the supervisor's planner memory is kept, or null for in-process only. */
+    private final ChatMemoryStore supervisorMemoryStore;
 
     /**
      * @param chatModel       the model every agent (and the supervisor's planner) uses
@@ -81,12 +84,13 @@ public class TaskFlowAgentFactory {
                                 SupervisorProperties properties,
                                 AgentRunRecorder recorder) {
         this(chatModel, taskTools, taskQueryTools, planTools, taskAgentMemory, contextSupplier, properties, recorder,
-                null, 0);
+                null, 0, null);
     }
 
     /**
      * @param answerGuardrail output guardrail registered on every sub-agent (Phase 3.3), or null
      * @param outputRetries   reprompts allowed after a failed answer before LangChain4j gives up
+     * @param supervisorMemoryStore persistent store for the supervisor's planner memory (Phase 3.4), or null
      */
     public TaskFlowAgentFactory(ChatModel chatModel,
                                 Object taskTools,
@@ -97,7 +101,8 @@ public class TaskFlowAgentFactory {
                                 SupervisorProperties properties,
                                 AgentRunRecorder recorder,
                                 OutputGuardrail answerGuardrail,
-                                int outputRetries) {
+                                int outputRetries,
+                                ChatMemoryStore supervisorMemoryStore) {
         // Every LLM call of every agent goes through the accounting wrapper, so the per-request
         // record gets exact call and token counts whatever the provider.
         this.chatModel = new TokenAccountingChatModel(chatModel);
@@ -110,6 +115,7 @@ public class TaskFlowAgentFactory {
         this.recorder = recorder;
         this.answerGuardrail = answerGuardrail;
         this.outputMaxRetries = outputRetries + 1;
+        this.supervisorMemoryStore = supervisorMemoryStore;
     }
 
     public TaskAgent taskAgent() {
@@ -202,10 +208,15 @@ public class TaskFlowAgentFactory {
     }
 
     private ChatMemoryProvider supervisorMemory() {
-        return conversationId -> MessageWindowChatMemory.builder()
-                .id(conversationId)
-                .maxMessages(properties.memoryMaxMessages())
-                .build();
+        return conversationId -> {
+            MessageWindowChatMemory.Builder builder = MessageWindowChatMemory.builder()
+                    .id(conversationId)
+                    .maxMessages(properties.memoryMaxMessages());
+            if (supervisorMemoryStore != null) {
+                builder.chatMemoryStore(supervisorMemoryStore);
+            }
+            return builder.build();
+        };
     }
 
     static String readResource(String path) {

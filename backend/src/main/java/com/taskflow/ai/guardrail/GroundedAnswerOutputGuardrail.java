@@ -69,7 +69,7 @@ public class GroundedAnswerOutputGuardrail implements OutputGuardrail {
     }
 
     /** Starts every reprompt, so the guardrail can recognise its own message in the next request. */
-    static final String REPROMPT_MARKER = "Your answer failed TaskFlow's automatic checks:";
+    public static final String REPROMPT_MARKER = "Your answer failed TaskFlow's automatic checks:";
 
     static String repairInstructions(List<GuardrailViolation> violations, List<TaskResponse> tasks, DailyPlan plan) {
         String titles = tasks.stream().limit(200).map(task -> "- \"" + task.title() + "\" (" + task.status() + ")")

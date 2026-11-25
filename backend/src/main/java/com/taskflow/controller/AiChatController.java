@@ -3,10 +3,13 @@ import com.taskflow.ai.agent.TaskAgent;
 import com.taskflow.ai.conversation.ConversationRef;
 import com.taskflow.ai.conversation.ConversationService;
 import com.taskflow.ai.dto.AgentDescriptor;
+import com.taskflow.ai.dto.ConversationMessage;
+import com.taskflow.ai.dto.ConversationSummary;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.exception.AiServiceException;
 import com.taskflow.ai.guardrail.ConversationGuardrails;
 import com.taskflow.ai.guardrail.GuardrailCodes;
+import com.taskflow.ai.memory.ConversationMemory;
 import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.ai.service.MultiAgentService;
 import com.taskflow.config.OpenApiConfig;
@@ -48,6 +51,7 @@ public class AiChatController {
     private final MultiAgentService multiAgentService;
     private final ConversationService conversations;
     private final CurrentUserProvider currentUser;
+    private final ConversationMemory memory;
 
     @Value("${langchain4j.open-ai.chat-model.model-name:unknown}")
     private String modelName;
@@ -59,12 +63,36 @@ public class AiChatController {
     }
 
     @Operation(summary = "Start a new conversation",
-            description = "Returns a server-issued conversation id owned by the caller. Send it with every chat message.")
+            description = "Returns a server-issued conversation id owned by the caller. Send it with every chat message. "
+                    + "mode is agent (Phase 1 TaskAgent) or supervisor (default); the two keep separate memory.")
     @PostMapping("/conversations")
     @ResponseStatus(HttpStatus.CREATED)
-    public ConversationResponse createConversation() {
-        ConversationRef conversation = conversations.create(currentUser.userId());
+    public ConversationResponse createConversation(
+            @RequestParam(name = "mode", defaultValue = ConversationService.MODE_SUPERVISOR) String mode) {
+        ConversationRef conversation = conversations.create(currentUser.userId(), mode);
         return new ConversationResponse(conversation.id().toString());
+    }
+
+    @Operation(summary = "List the caller's conversations (Phase 3.4)",
+            description = "Most recent activity first, at most 50. Conversations are deleted after the retention period.")
+    @GetMapping("/conversations")
+    public List<ConversationSummary> listConversations() {
+        return conversations.list(currentUser.userId());
+    }
+
+    @Operation(summary = "The transcript of one of the caller's conversations (Phase 3.4)",
+            description = "404 for an unknown conversation or one owned by another user.")
+    @GetMapping("/conversations/{conversationId}/messages")
+    public List<ConversationMessage> conversationMessages(@PathVariable String conversationId) {
+        return conversations.history(currentUser.userId(), conversationId);
+    }
+
+    @Operation(summary = "Delete one of the caller's conversations with its memory and transcript (Phase 3.4)",
+            description = "404 for an unknown conversation or one owned by another user.")
+    @DeleteMapping("/conversations/{conversationId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteConversation(@PathVariable String conversationId) {
+        conversations.delete(currentUser.userId(), conversationId);
     }
 
     @Operation(summary = "Send a message to the single TaskAgent (Phase 1)")
@@ -78,17 +106,24 @@ public class AiChatController {
         // Recording the request lets the write guardrail count task changes on this path too, and lets the
         // input guardrail report which check refused the message.
         AgentRunRecorder.Run run = AgentRunRecorder.open();
+        // Phase 3.4: memory writes are staged and committed only when the turn succeeds.
+        memory.begin();
         try {
             response = taskAgentService.chat(
                     conversation.memoryKey(),
                     request.message()
             );
+            memory.commit();
+            conversations.recordTurn(conversation, request.message(), response, null, run.guardrails());
         } catch (InputGuardrailException ex) {
             // Phase 3.3: TaskAgent's @InputGuardrails(TaskScopeInputGuardrail.class) refused the message.
+            // Phase 3.4: nothing of the refused turn is kept in memory; the transcript shows the refusal.
             String code = run.guardrails().isEmpty() ? GuardrailCodes.INPUT_OUT_OF_SCOPE : run.guardrails().get(0);
             log.info("guardrail.input code={}", code);
-            return ResponseEntity.ok(new ChatResponse(conversation.id().toString(),
-                    ConversationGuardrails.replyFor(code)));
+            String reply = ConversationGuardrails.replyFor(code);
+            memory.discard();
+            conversations.recordTurn(conversation, request.message(), reply, null, List.of(code));
+            return ResponseEntity.ok(new ChatResponse(conversation.id().toString(), reply));
         } catch (RuntimeException ex) {
             // Tool failures never reach here (LangChain4j feeds them back to the model); this is the model
             // call itself failing: rate limit, timeout, bad key, network. Log the detail, return a safe message.
@@ -97,6 +132,7 @@ public class AiChatController {
                     request.conversationId(), translated.status(), ex.toString());
             throw translated;
         } finally {
+            memory.discard();
             AgentRunRecorder.close();
         }
 

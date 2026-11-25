@@ -53,11 +53,21 @@ class ScriptedRegressionEvalTest extends AbstractAiIntegrationTest {
     private MutableClock clock;
     @Autowired
     private ScriptedChatModel model;
+    @Autowired
+    private com.taskflow.ai.orchestration.TaskFlowAgentFactory agentFactory;
+    @Autowired
+    private com.taskflow.ai.guardrail.ConversationGuardrails conversationGuardrails;
+    @Autowired
+    private com.taskflow.ai.memory.ConversationMemory conversationMemory;
+    @Autowired
+    private com.taskflow.ai.memory.ChatMemoryRepository chatMemoryRepository;
 
     @TestFactory
     Stream<DynamicTest> scriptedScenarios() {
         ScenarioRunner runner = new ScenarioRunner(multiAgentService, conversations, userAccounts, preferences, tasks,
-                clock, model);
+                clock, model)
+                .withPersistence(() -> new MultiAgentService(agentFactory.supervisor(), conversationGuardrails,
+                        conversationMemory, conversations), chatMemoryRepository);
         return DATASET.scenarios().stream().map(scenario -> DynamicTest.dynamicTest(
                 scenario.id() + " " + scenario.title(), () -> {
                     assumeTrue(scenario.executable(), () -> "not applicable until " + scenario.notApplicable().until());

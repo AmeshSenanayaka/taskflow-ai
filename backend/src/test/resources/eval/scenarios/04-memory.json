@@ -8,31 +8,218 @@
       "Change its priority to high"
     ],
     "script": [
-      { "invokeAgent": "TaskAgent", "request": "Create a task called Prepare slides for Friday's demo" },
-      { "toolCall": "createTask", "arguments": { "title": "Prepare slides for Friday's demo" } },
-      { "text": "Created \"Prepare slides for Friday's demo\" (MEDIUM)." },
-      { "done": "Created the task." },
-      { "invokeAgent": "TaskAgent", "request": "Change its priority to high" },
-      { "toolCall": "updateTask", "arguments": { "taskId": "${title:slides}", "priority": "HIGH" } },
-      { "text": "Changed the priority of \"Prepare slides for Friday's demo\" to HIGH." },
-      { "done": "Updated the priority." }
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Create a task called Prepare slides for Friday's demo"
+      },
+      {
+        "toolCall": "createTask",
+        "arguments": {
+          "title": "Prepare slides for Friday's demo"
+        }
+      },
+      {
+        "text": "Created \"Prepare slides for Friday's demo\" (MEDIUM)."
+      },
+      {
+        "done": "Created the task."
+      },
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Change its priority to high"
+      },
+      {
+        "toolCall": "updateTask",
+        "arguments": {
+          "taskId": "${title:slides}",
+          "priority": "HIGH"
+        }
+      },
+      {
+        "text": "Changed the priority of \"Prepare slides for Friday's demo\" to HIGH."
+      },
+      {
+        "done": "Updated the priority."
+      }
     ],
     "expect": {
       "dataChanged": true,
-      "tasks": [ { "titleContains": "slides", "priority": "HIGH" } ],
-      "taskCount": { "alice": 1 }
+      "tasks": [
+        {
+          "titleContains": "slides",
+          "priority": "HIGH"
+        }
+      ],
+      "taskCount": {
+        "alice": 1
+      }
     }
   },
   {
     "id": "M02",
     "title": "Conversation memory survives a backend restart",
     "category": "MEMORY",
-    "notApplicable": { "until": "3.4", "reason": "chat memory is kept in process and is lost on restart; persistent memory arrives in Phase 3.4" }
+    "restartBetweenTurns": true,
+    "turns": [
+      "Create a task called Prepare slides for Friday's demo",
+      "Change its priority to high"
+    ],
+    "script": [
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Create a task called Prepare slides for Friday's demo"
+      },
+      {
+        "toolCall": "createTask",
+        "arguments": {
+          "title": "Prepare slides for Friday's demo"
+        }
+      },
+      {
+        "text": "Created \"Prepare slides for Friday's demo\" (MEDIUM)."
+      },
+      {
+        "done": "Created the task."
+      },
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Change its priority to high"
+      },
+      {
+        "toolCall": "updateTask",
+        "arguments": {
+          "taskId": "${title:slides}",
+          "priority": "HIGH"
+        }
+      },
+      {
+        "text": "Changed the priority of \"Prepare slides for Friday's demo\" to HIGH."
+      },
+      {
+        "done": "Updated the priority."
+      }
+    ],
+    "expect": {
+      "dataChanged": true,
+      "tasks": [
+        {
+          "titleContains": "slides",
+          "priority": "HIGH"
+        }
+      ],
+      "taskCount": {
+        "alice": 1
+      },
+      "contextContains": [
+        "Prepare slides for Friday's demo"
+      ]
+    }
   },
   {
     "id": "M03",
     "title": "A rejected answer is not stored as conversation history",
     "category": "MEMORY",
-    "notApplicable": { "until": "3.4", "reason": "needs output validation (3.3) and staged memory commits (3.4)" }
+    "fixture": [
+      {
+        "key": "a",
+        "title": "Prepare sprint review",
+        "priority": "HIGH",
+        "dueDate": "2026-11-09"
+      },
+      {
+        "key": "b",
+        "title": "Reply to customer emails",
+        "priority": "MEDIUM"
+      }
+    ],
+    "turns": [
+      "Show my open tasks"
+    ],
+    "script": [
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Show my open tasks"
+      },
+      {
+        "toolCall": "listTasks",
+        "arguments": {
+          "page": 0,
+          "size": 20
+        }
+      },
+      {
+        "text": "Your open tasks: \"Prepare sprint review\" and \"Book flights to Tokyo\"."
+      },
+      {
+        "text": "Corrected: \"Prepare sprint review\" and \"Book flights to Tokyo\"."
+      }
+    ],
+    "expect": {
+      "guardrails": [
+        "OUTPUT_FALLBACK"
+      ],
+      "responseNotContains": [
+        "Tokyo"
+      ],
+      "memoryNotContains": [
+        "Tokyo"
+      ]
+    }
+  },
+  {
+    "id": "M04",
+    "title": "A repaired answer is stored without the rejected draft and the reprompt",
+    "category": "MEMORY",
+    "fixture": [
+      {
+        "key": "a",
+        "title": "Prepare sprint review",
+        "priority": "HIGH",
+        "dueDate": "2026-11-09"
+      },
+      {
+        "key": "b",
+        "title": "Reply to customer emails",
+        "priority": "MEDIUM"
+      }
+    ],
+    "turns": [
+      "Show my open tasks"
+    ],
+    "script": [
+      {
+        "invokeAgent": "TaskAgent",
+        "request": "Show my open tasks"
+      },
+      {
+        "toolCall": "listTasks",
+        "arguments": {
+          "page": 0,
+          "size": 20
+        }
+      },
+      {
+        "text": "Your open tasks: \"Prepare sprint review\" and \"Book flights to Tokyo\"."
+      },
+      {
+        "text": "Your open tasks: \"Prepare sprint review\" and \"Reply to customer emails\"."
+      },
+      {
+        "done": "Listed the open tasks."
+      }
+    ],
+    "expect": {
+      "guardrails": [
+        "OUTPUT_UNKNOWN_TASK",
+        "OUTPUT_REWRITTEN"
+      ],
+      "responseContains": [
+        "Reply to customer emails"
+      ],
+      "memoryNotContains": [
+        "Tokyo",
+        "automatic checks"
+      ]
+    }
   }
 ]
