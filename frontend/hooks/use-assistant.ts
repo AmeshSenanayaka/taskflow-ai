@@ -20,6 +20,8 @@ export interface AssistantMessage {
   execution?: AgentExecutionInfo;
   /** A rule-checked day plan returned with the answer (Phase 3.2). */
   plan?: DailyPlan | null;
+  /** Guardrails that acted on this answer (Phase 3.3). */
+  guardrails?: string[];
   /** True for user messages that failed to send; they can be retried. */
   failed?: boolean;
 }
@@ -120,6 +122,7 @@ export function useAssistant() {
           confirmationState: response.pendingConfirmation ? "pending" : undefined,
           execution: response.execution,
           plan: response.plan ?? null,
+          guardrails: response.guardrails ?? [],
         },
       ]);
       // The Phase 1 endpoint does not report dataChanged, so refresh after every reply in that case.

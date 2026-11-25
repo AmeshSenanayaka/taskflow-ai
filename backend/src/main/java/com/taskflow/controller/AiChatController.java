@@ -5,6 +5,10 @@ import com.taskflow.ai.conversation.ConversationService;
 import com.taskflow.ai.dto.AgentDescriptor;
 import com.taskflow.ai.dto.SupervisorChatResponse;
 import com.taskflow.ai.exception.AiServiceException;
+import com.taskflow.ai.guardrail.ConversationGuardrails;
+import com.taskflow.ai.guardrail.GuardrailCodes;
+import dev.langchain4j.guardrail.InputGuardrailException;
+import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.ai.service.MultiAgentService;
 import com.taskflow.config.OpenApiConfig;
 import com.taskflow.security.CurrentUserProvider;
@@ -71,11 +75,20 @@ public class AiChatController {
         // Ownership first: an unknown or foreign conversation is a 404 and never reaches the model.
         ConversationRef conversation = conversations.requireOwned(currentUser.userId(), request.conversationId());
         String response;
+        // Recording the request lets the write guardrail count task changes on this path too, and lets the
+        // input guardrail report which check refused the message.
+        AgentRunRecorder.Run run = AgentRunRecorder.open();
         try {
             response = taskAgentService.chat(
                     conversation.memoryKey(),
                     request.message()
             );
+        } catch (InputGuardrailException ex) {
+            // Phase 3.3: TaskAgent's @InputGuardrails(TaskScopeInputGuardrail.class) refused the message.
+            String code = run.guardrails().isEmpty() ? GuardrailCodes.INPUT_OUT_OF_SCOPE : run.guardrails().get(0);
+            log.info("guardrail.input code={}", code);
+            return ResponseEntity.ok(new ChatResponse(conversation.id().toString(),
+                    ConversationGuardrails.replyFor(code)));
         } catch (RuntimeException ex) {
             // Tool failures never reach here (LangChain4j feeds them back to the model); this is the model
             // call itself failing: rate limit, timeout, bad key, network. Log the detail, return a safe message.
@@ -83,6 +96,8 @@ public class AiChatController {
             log.error("AI chat failed for conversation {} ({}): {}",
                     request.conversationId(), translated.status(), ex.toString());
             throw translated;
+        } finally {
+            AgentRunRecorder.close();
         }
 
         return ResponseEntity.ok(

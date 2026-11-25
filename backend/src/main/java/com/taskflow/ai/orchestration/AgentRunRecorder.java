@@ -67,6 +67,17 @@ public class AgentRunRecorder implements AgentListener {
         /** Phase 3.2: the last plan PlanningAgent submitted and the rules accepted, and the submissions so far. */
         private DailyPlan plan;
         private int planAttempts;
+        /** Phase 3.3: task changes attempted in this request, and the guardrails that acted, in order. */
+        private int writes;
+        private final java.util.LinkedHashSet<String> guardrails = new java.util.LinkedHashSet<>();
+        /** The user's message passed the entry-point input check, so agent-level input guardrails skip it. */
+        private boolean inputChecked;
+        /** An agent's answer failed the output guardrail and the agent was asked to repair it. */
+        private boolean repairPending;
+
+        public List<String> guardrails() {
+            return List.copyOf(guardrails);
+        }
 
         public DailyPlan plan() {
             return plan;
@@ -99,6 +110,60 @@ public class AgentRunRecorder implements AgentListener {
         if (run != null) {
             run.plan = plan;
         }
+    }
+
+    /**
+     * Counts a task change about to be attempted in the current request and returns its number (1 for the first),
+     * or 0 when no request is being recorded (then no write limit applies).
+     */
+    public static int nextWrite() {
+        Run run = CURRENT.get();
+        return run == null ? 0 : ++run.writes;
+    }
+
+    /** Records that a guardrail acted in the current request (each code once). */
+    public static void recordGuardrail(String code) {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.guardrails.add(code);
+        }
+    }
+
+    /** The plan accepted so far in the current request, or null. */
+    public static DailyPlan currentPlan() {
+        Run run = CURRENT.get();
+        return run == null ? null : run.plan;
+    }
+
+    /** Marks that the entry point already checked the user's message (supervisor path, Phase 3.3). */
+    public static void markInputChecked() {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.inputChecked = true;
+        }
+    }
+
+    public static boolean inputChecked() {
+        Run run = CURRENT.get();
+        return run != null && run.inputChecked;
+    }
+
+    /** Marks that an agent was asked to repair an answer that failed the output guardrail. */
+    public static void markRepairPending() {
+        Run run = CURRENT.get();
+        if (run != null) {
+            run.repairPending = true;
+        }
+    }
+
+    /** @return whether a repair was pending, clearing the flag */
+    public static boolean takeRepairPending() {
+        Run run = CURRENT.get();
+        if (run == null || !run.repairPending) {
+            return false;
+        }
+        run.repairPending = false;
+        return true;
     }
 
     /** Counts a plan submission in the current request and returns its number (1 for the first). */

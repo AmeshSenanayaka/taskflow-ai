@@ -67,6 +67,13 @@ taskflow:
       response-strategy: ${AI_SUPERVISOR_RESPONSE_STRATEGY:LAST}
       # CHAT_MEMORY (default), SUMMARIZATION or CHAT_MEMORY_AND_SUMMARIZATION.
       context-strategy: ${AI_SUPERVISOR_CONTEXT_STRATEGY:CHAT_MEMORY}
+    # Phase 3.3: conversation guardrails (input scope and injection, untrusted tool data, write limit, output checks).
+    guardrails:
+      enabled: ${AI_GUARDRAILS_ENABLED:true}
+      # Task changes one assistant message may make; further writes are refused.
+      max-writes-per-request: ${AI_GUARDRAILS_MAX_WRITES:10}
+      # Rewrites of an answer that failed an output check before the safe fallback is returned.
+      output-retries: ${AI_GUARDRAILS_OUTPUT_RETRIES:1}
 
 springdoc:
   swagger-ui:

@@ -13,7 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationCredentialsNotFoundException;
@@ -48,13 +47,14 @@ class TaskToolsTest {
     @Mock
     private CurrentUserProvider currentUser;
 
-    @InjectMocks
     private TaskTools taskTools;
 
     private static final UUID USER = UUID.fromString("00000000-0000-0000-0000-00000000a11c");
 
     @BeforeEach
     void signIn() {
+        taskTools = new TaskTools(taskService, preferencesService, currentUser,
+                new com.taskflow.ai.guardrail.GuardrailProperties(true, 10, 1));
         lenient().when(currentUser.userId()).thenReturn(USER);
     }
 
@@ -165,5 +165,23 @@ class TaskToolsTest {
                 .isInstanceOf(ToolExecutionException.class)
                 .hasMessageContaining("no signed-in user");
         verifyNoInteractions(taskService);
+    }
+
+    @Test
+    void aMessageCanChangeAtMostTheConfiguredNumberOfTasks() {
+        TaskTools limited = new TaskTools(taskService, preferencesService, currentUser,
+                new com.taskflow.ai.guardrail.GuardrailProperties(true, 2, 1));
+        com.taskflow.ai.orchestration.AgentRunRecorder.Run run = com.taskflow.ai.orchestration.AgentRunRecorder.open();
+        try {
+            limited.updateTaskStatus(UUID.randomUUID(), "COMPLETED");
+            limited.updateTaskStatus(UUID.randomUUID(), "COMPLETED");
+
+            assertThatThrownBy(() -> limited.updateTaskStatus(UUID.randomUUID(), "COMPLETED"))
+                    .isInstanceOf(ToolExecutionException.class)
+                    .hasMessageContaining("at most 2 tasks");
+            assertThat(run.guardrails()).containsExactly(com.taskflow.ai.guardrail.GuardrailCodes.TOOL_WRITE_LIMIT);
+        } finally {
+            com.taskflow.ai.orchestration.AgentRunRecorder.close();
+        }
     }
 }

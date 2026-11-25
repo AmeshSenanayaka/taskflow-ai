@@ -1,10 +1,12 @@
 package com.taskflow.ai.agent;
 
+import com.taskflow.ai.guardrail.TaskScopeInputGuardrail;
 import dev.langchain4j.agentic.Agent;
 import dev.langchain4j.service.MemoryId;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
+import dev.langchain4j.service.guardrail.InputGuardrails;
 import dev.langchain4j.service.spring.AiService;
 
 /**
@@ -40,6 +42,9 @@ public interface TaskAgent {
     )
     @SystemMessage(fromResource = "/prompts/task-agent-system.txt")
     @UserMessage("{{request}}")
+    // Phase 3.3: LangChain4j's declarative input guardrail. Guards the Phase 1 endpoint, where the message is the
+    // user's own; in the multi-agent path the user's message was already checked at the entry point.
+    @InputGuardrails(TaskScopeInputGuardrail.class)
     String chat(@MemoryId String conversationId,
                 @V("request") String request);
 }

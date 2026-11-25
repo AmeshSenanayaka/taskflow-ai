@@ -12,7 +12,9 @@ public record SupervisorChatResponse(
         boolean dataChanged,
         Execution execution,
         @Schema(description = "Phase 3.2: the validated day plan, when PlanningAgent produced one")
-        DailyPlan plan
+        DailyPlan plan,
+        @Schema(description = "Phase 3.3: codes of the guardrails that acted on this turn, e.g. INPUT_OUT_OF_SCOPE")
+        List<String> guardrails
 ) {
 
     @Schema(description = "How the request was processed")

@@ -87,6 +87,13 @@ public class TaskService {
         return PageResponse.from(result);
     }
 
+    /** Every task of the owner, unpaged. Used by the output guardrails to check what an answer may mention. */
+    public List<TaskResponse> listAll(UUID ownerId) {
+        return taskRepository.findAll(TaskSpecifications.ownedBy(requireOwner(ownerId))).stream()
+                .map(taskMapper::toResponse)
+                .toList();
+    }
+
     @Transactional
     public TaskResponse update(UUID ownerId, UUID id, UpdateTaskRequest request) {
         return apply(findOrThrow(ownerId, id), request);

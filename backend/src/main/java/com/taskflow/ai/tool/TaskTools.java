@@ -1,6 +1,10 @@
 package com.taskflow.ai.tool;
 
 import com.taskflow.ai.exception.ToolExecutionException;
+import com.taskflow.ai.guardrail.GuardrailCodes;
+import com.taskflow.ai.guardrail.GuardrailProperties;
+import com.taskflow.ai.guardrail.UntrustedTaskData;
+import com.taskflow.ai.orchestration.AgentRunRecorder;
 import com.taskflow.dto.request.CreateTaskRequest;
 import com.taskflow.dto.request.UpdateTaskRequest;
 import com.taskflow.dto.response.PageResponse;
@@ -45,6 +49,7 @@ public class TaskTools {
     private final TaskService taskService;
     private final PreferencesService preferencesService;
     private final CurrentUserProvider currentUser;
+    private final GuardrailProperties guardrails;
 
     @Tool("""
         Get today's date in the user's configured timezone, as YYYY-MM-DD, together with that timezone.
@@ -77,6 +82,7 @@ public class TaskTools {
             if (title == null || title.isBlank()) {
                 throw new ToolExecutionException("A task title is required. Ask the user what the task is called.");
             }
+            checkWriteLimit();
             CreateTaskRequest request = new CreateTaskRequest(
                     title.trim(),
                     description,
@@ -89,15 +95,25 @@ public class TaskTools {
     }
 
     @Tool("Get a task by its unique ID")
-    public TaskResponse getTaskById(
+    public TaskLookup getTaskById(
             @P("Unique task ID") UUID taskId
     ) {
         return guarded("getTaskById", () -> {
             if (taskId == null) {
                 throw new ToolExecutionException("A task id is required. Use listTasks to find the task first.");
             }
-            return taskService.getById(currentUser.userId(), taskId);
+            TaskResponse task = taskService.getById(currentUser.userId(), taskId);
+            return new TaskLookup(task, UntrustedTaskData.notice(task));
         });
+    }
+
+    /** Tool result for {@link #getTaskById}; {@code notice} is set when the task's text looks like instructions. */
+    public record TaskLookup(TaskResponse task, String notice) {
+    }
+
+    /** Tool result for {@link #listTasks}; {@code notice} is set when task text in the page looks like instructions. */
+    public record TaskList(List<TaskResponse> tasks, int page, int totalPages, long totalElements, boolean last,
+                           String notice) {
     }
 
     @MutatesTasks
@@ -130,6 +146,7 @@ public class TaskTools {
             boolean clearDueDate = dueDate != null && dueDate.isBlank();
             LocalDate newDueDate = clearDueDate ? null : parseDate(dueDate);
             Integer newEstimate = checkEstimate(estimatedMinutes);
+            checkWriteLimit();
             // The merge with the current values runs inside TaskService.patch, in one transaction on a locked row,
             // so a concurrent edit of another field is not overwritten with a stale value.
             return taskService.patch(currentUser.userId(), taskId, current -> new UpdateTaskRequest(
@@ -157,6 +174,7 @@ public class TaskTools {
             if (newStatus == null) {
                 throw new ToolExecutionException("Invalid status '" + status + "'. Use TODO, IN_PROGRESS or COMPLETED.");
             }
+            checkWriteLimit();
             return taskService.updateStatus(currentUser.userId(), taskId, newStatus);
         });
     }
@@ -169,7 +187,7 @@ public class TaskTools {
         Use ISO dates (YYYY-MM-DD).
         Page numbering starts at 0.
         """)
-    public PageResponse<TaskResponse> listTasks(
+    public TaskList listTasks(
             @P("Task statuses, e.g. TODO, IN_PROGRESS, COMPLETED. Null for all statuses")
             List<TaskStatus> statuses,
 
@@ -210,14 +228,30 @@ public class TaskTools {
                     search
             );
             TaskSort sort = createTaskSort(sortBy, direction);
-            return taskService.list(
+            PageResponse<TaskResponse> result = taskService.list(
                     currentUser.userId(),
                     filter,
                     sort,
                     Math.max(0, page),
                     Math.clamp(size, 1, 50)
             );
+            return new TaskList(result.content(), result.page(), result.totalPages(), result.totalElements(),
+                    result.last(), UntrustedTaskData.notice(result.content()));
         });
+    }
+
+    /**
+     * Phase 3.3 write guardrail: one assistant message may change at most {@code maxWritesPerRequest} tasks, so a
+     * confused or manipulated agent cannot bulk-edit everything. Counted per attempt, before anything is written.
+     */
+    private void checkWriteLimit() {
+        int write = AgentRunRecorder.nextWrite();
+        if (write > 0 && write > guardrails.maxWritesPerRequest()) {
+            AgentRunRecorder.recordGuardrail(GuardrailCodes.TOOL_WRITE_LIMIT);
+            throw new ToolExecutionException("Limit reached: one message may change at most "
+                    + guardrails.maxWritesPerRequest() + " tasks. Nothing more was changed. Tell the user which "
+                    + "changes were made and ask them to send the remaining ones in a new message.");
+        }
     }
 
     private LocalDate parseDate(String value) {

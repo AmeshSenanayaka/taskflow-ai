@@ -1,4 +1,4 @@
-# TaskFlow AI — Phase 3.2
+# TaskFlow AI — Phase 3.3
 
 A modern, full-stack **personal task manager** built with **Spring Boot 3**, **PostgreSQL** and **Next.js**, with an
 **AI assistant** powered by **LangChain4j** and **OpenAI**: a single `TaskAgent` (Phase 1), a **multi-agent system** in
@@ -17,8 +17,9 @@ This repository accompanies the Medium article series
 | Phase 2 | `TaskFlowSupervisor` orchestrating `TaskAgent`, `PriorityAgent`, `PlanningAgent`, `SummaryAgent` | ✅ Implemented |
 | Phase 3.0 | Identity foundation: Keycloak + Spring Security, per-user data, AI tools scoped to the authenticated user | ✅ Implemented |
 | Phase 3.1 | Evaluation framework: scenario dataset, scripted regression tier, opt-in live-model baseline, reproducible reports | ✅ Implemented |
-| **Phase 3.2** | Deterministic rules: task rules for every write, estimated minutes, structured rule-checked day plans (this repository state) | ✅ Implemented |
-| Phase 3.3–3.5 | Guardrails, isolated persistent memory, runtime AI governance | Planned |
+| Phase 3.2 | Deterministic rules: task rules for every write, estimated minutes, structured rule-checked day plans | ✅ Implemented |
+| **Phase 3.3** | Guardrails: input scope and injection checks, untrusted tool data, a write limit per message, grounded output checks on each agent (LangChain4j `OutputGuardrail` with one reprompt) and on the final answer, with a safe fallback (this repository state) | ✅ Implemented |
+| Phase 3.4–3.5 | Isolated persistent memory, runtime AI governance | Planned |
 
 > Phase 1 added exactly one agent: the `TaskAgent` creates, finds, reads and (since Phase 2) updates tasks through
 > LangChain4j tools that call the Phase 0 `TaskService`, and remembers the conversation. Phase 2 adds three read-only
@@ -412,6 +413,9 @@ npm start
 | `OPENAI_TEMPERATURE` | `0.2` | Sampling temperature |
 | `OPENAI_LOG_REQUESTS` / `OPENAI_LOG_RESPONSES` | `false` | Log full LLM request/response bodies (development only) |
 | `AI_MEMORY_MAX_MESSAGES` | `30` | Messages kept per conversation (sliding window), TaskAgent |
+| `AI_GUARDRAILS_ENABLED` | `true` | Phase 3.3: input, tool and output guardrails |
+| `AI_GUARDRAILS_MAX_WRITES` | `10` | Phase 3.3: task changes one assistant message may make |
+| `AI_GUARDRAILS_OUTPUT_RETRIES` | `1` | Phase 3.3: rewrites of a failed answer before the safe fallback |
 | `AI_SUPERVISOR_MAX_AGENT_INVOCATIONS` | `5` | Phase 2: sub-agent calls allowed per message (each costs ≥ 2 LLM calls) |
 | `AI_SUPERVISOR_MAX_TOOL_ROUND_TRIPS` | `8` | Phase 2: tool calls allowed inside one sub-agent invocation |
 | `AI_SUPERVISOR_MEMORY_MAX_MESSAGES` | `20` | Phase 2: the supervisor's own planning memory per conversation |
@@ -738,7 +742,10 @@ task creation through the drawer, complete/reopen status updates, date helpers, 
 - **Phase 3.2 — Deterministic rules (done).** Task rules enforced in `TaskService` for the UI, the API and the AI
   alike (`422` with rule codes), optional estimated minutes, and a `submitPlan` tool that makes every day plan pass
   plan rules before the user sees it. See [`docs/phase-3.2/IMPLEMENTATION.md`](docs/phase-3.2/IMPLEMENTATION.md).
-- **Phase 3.3–3.5 — Reliable and governed agentic AI.** 3.3 input, output and tool guardrails, 3.4 isolated persistent memory,
+- **Phase 3.3 — Guardrails (done).** Off-topic and prompt-injection messages answered without a model call, task text
+  marked as untrusted data, at most 10 task changes per message, and answers checked against the user's real tasks
+  and the checked plan (each agent repairs its answer once through a LangChain4j reprompt, then a safe fallback). See [`docs/phase-3.3/IMPLEMENTATION.md`](docs/phase-3.3/IMPLEMENTATION.md).
+- **Phase 3.4–3.5 — Reliable and governed agentic AI.** 3.4 isolated persistent memory,
   3.5 runtime AI governance (execution budgets, auditing and human approval of sensitive actions).
 
 See [`docs/phase-0/IMPLEMENTATION.md`](docs/phase-0/IMPLEMENTATION.md),
