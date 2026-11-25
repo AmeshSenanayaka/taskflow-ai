@@ -90,7 +90,9 @@ public class TaskTools {
                     parseDate(dueDate),
                     checkEstimate(estimatedMinutes)
             );
-            return taskService.create(currentUser.userId(), request);
+            TaskResponse created = taskService.create(currentUser.userId(), request);
+            AgentRunRecorder.recordWrite();
+            return created;
         });
     }
 
@@ -149,7 +151,7 @@ public class TaskTools {
             checkWriteLimit();
             // The merge with the current values runs inside TaskService.patch, in one transaction on a locked row,
             // so a concurrent edit of another field is not overwritten with a stale value.
-            return taskService.patch(currentUser.userId(), taskId, current -> new UpdateTaskRequest(
+            TaskResponse updated = taskService.patch(currentUser.userId(), taskId, current -> new UpdateTaskRequest(
                     title == null ? current.title() : title.trim(),
                     description == null ? current.description() : description,
                     newPriority == null ? current.priority() : newPriority,
@@ -157,6 +159,8 @@ public class TaskTools {
                     clearDueDate ? null : newDueDate == null ? current.dueDate() : newDueDate,
                     newEstimate == null ? current.estimatedMinutes() : newEstimate
             ));
+            AgentRunRecorder.recordWrite();
+            return updated;
         });
     }
 
@@ -175,7 +179,9 @@ public class TaskTools {
                 throw new ToolExecutionException("Invalid status '" + status + "'. Use TODO, IN_PROGRESS or COMPLETED.");
             }
             checkWriteLimit();
-            return taskService.updateStatus(currentUser.userId(), taskId, newStatus);
+            TaskResponse updated = taskService.updateStatus(currentUser.userId(), taskId, newStatus);
+            AgentRunRecorder.recordWrite();
+            return updated;
         });
     }
 
@@ -242,15 +248,17 @@ public class TaskTools {
 
     /**
      * Phase 3.3 write guardrail: one assistant message may change at most {@code maxWritesPerRequest} tasks, so a
-     * confused or manipulated agent cannot bulk-edit everything. Counted per attempt, before anything is written.
+     * confused or manipulated agent cannot bulk-edit everything. Checked before writing; only writes that succeeded
+     * count ({@link AgentRunRecorder#recordWrite()}), so writes rejected by a rule do not use up the limit.
      */
     private void checkWriteLimit() {
-        int write = AgentRunRecorder.nextWrite();
-        if (write > 0 && write > guardrails.maxWritesPerRequest()) {
+        int writes = AgentRunRecorder.writesSoFar();
+        if (writes >= 0 && writes >= guardrails.maxWritesPerRequest()) {
             AgentRunRecorder.recordGuardrail(GuardrailCodes.TOOL_WRITE_LIMIT);
-            throw new ToolExecutionException("Limit reached: one message may change at most "
-                    + guardrails.maxWritesPerRequest() + " tasks. Nothing more was changed. Tell the user which "
-                    + "changes were made and ask them to send the remaining ones in a new message.");
+            throw new ToolExecutionException("Limit reached: this message already changed "
+                    + guardrails.maxWritesPerRequest() + " tasks, the most one message may change. Nothing more was "
+                    + "changed. Tell the user which changes were made and ask them to send the remaining ones in a "
+                    + "new message.");
         }
     }
 

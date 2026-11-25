@@ -28,6 +28,10 @@ class DetectorsTest {
     void ordinaryTaskLanguageIsNotFlagged() {
         assertThat(InjectionDetector.looksLikeInstructions("Ignore the wiki task for today, plan the rest")).isFalse();
         assertThat(InjectionDetector.looksLikeInstructions("Write system design notes")).isFalse();
+        // Corrections of the user's own earlier messages are ordinary chat, not injection.
+        assertThat(InjectionDetector.looksLikeInstructions("Ignore the previous message, I meant Friday")).isFalse();
+        assertThat(InjectionDetector.looksLikeInstructions("forget the earlier messages and just list my tasks"))
+                .isFalse();
         assertThat(InjectionDetector.looksLikeInstructions(null)).isFalse();
     }
 

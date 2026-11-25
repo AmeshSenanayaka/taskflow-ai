@@ -78,8 +78,11 @@ public class ConversationGuardrails {
         if (!enabled) {
             return answer;
         }
-        List<TaskResponse> tasks = taskService.listAll(ownerId);
-        List<GuardrailViolation> violations = AnswerGuard.check(answer, tasks, userMessage, plan);
+        List<TaskResponse> tasks = AgentRunRecorder.tasksForChecks(() -> taskService.listAll(ownerId));
+        // The same allowed wording as the agent-level check: the user's message and what the agents were asked,
+        // so an answer an agent's guardrail accepted is not rejected here for quoting the planner's request.
+        String allowed = userMessage + "\n" + String.join("\n", AgentRunRecorder.agentRequests());
+        List<GuardrailViolation> violations = AnswerGuard.check(answer, tasks, allowed, plan);
         if (violations.isEmpty()) {
             return answer;
         }

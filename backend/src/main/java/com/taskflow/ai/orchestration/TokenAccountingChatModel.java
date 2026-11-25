@@ -15,11 +15,11 @@ import java.util.Set;
  * system (planner, sub-agents, tool rounds) is counted and its token usage summed into the current
  * {@link AgentRunRecorder} record. Everything else is delegated untouched.
  */
-public final class TokenAccountingChatModel implements ChatModel {
+final class TokenAccountingChatModel implements ChatModel {
 
     private final ChatModel delegate;
 
-    public TokenAccountingChatModel(ChatModel delegate) {
+    TokenAccountingChatModel(ChatModel delegate) {
         this.delegate = delegate;
     }
 

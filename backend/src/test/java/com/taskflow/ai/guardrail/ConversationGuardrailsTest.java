@@ -88,6 +88,22 @@ class ConversationGuardrailsTest {
     }
 
     @Test
+    void theFinalCheckAllowsWordingFromTheAgentsRequestsLikeTheAgentCheckDoes() {
+        when(taskService.listAll(USER)).thenReturn(List.of(REVIEW));
+        AgentRunRecorder.recordAgentRequest("Create a task \"Book dentist appointment\" due 2026-11-01");
+        String answer = "I couldn't create \"Book dentist appointment\" because its due date is in the past.";
+
+        assertThat(guardrails.checkOutput(USER, "remind me about the dentist", answer, null, false)).isEqualTo(answer);
+        assertThat(run.guardrails()).isEmpty();
+    }
+
+    @Test
+    void quotedStatusAndPriorityValuesAreNotTreatedAsTaskTitles() {
+        assertThat(AnswerGuard.check("Marked \"Prepare sprint review\" as \"COMPLETED\" with \"high\" priority, "
+                + "it was \"in progress\".", List.of(REVIEW), "", null)).isEmpty();
+    }
+
+    @Test
     void unknownIdsAndQuotesFromTheUserAreHandledDifferently() {
         UUID stranger = UUID.fromString("00000000-0000-0000-0000-000000000bad");
 

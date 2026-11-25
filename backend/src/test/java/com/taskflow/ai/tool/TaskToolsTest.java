@@ -178,8 +178,30 @@ class TaskToolsTest {
 
             assertThatThrownBy(() -> limited.updateTaskStatus(UUID.randomUUID(), "COMPLETED"))
                     .isInstanceOf(ToolExecutionException.class)
-                    .hasMessageContaining("at most 2 tasks");
+                    .hasMessageContaining("already changed 2 tasks");
             assertThat(run.guardrails()).containsExactly(com.taskflow.ai.guardrail.GuardrailCodes.TOOL_WRITE_LIMIT);
+        } finally {
+            com.taskflow.ai.orchestration.AgentRunRecorder.close();
+        }
+    }
+
+    @Test
+    void writesThatFailDoNotUseUpTheWriteLimit() {
+        TaskTools limited = new TaskTools(taskService, preferencesService, currentUser,
+                new com.taskflow.ai.guardrail.GuardrailProperties(true, 1, 1));
+        UUID missing = UUID.randomUUID();
+        // First call: the task does not exist; second call: the change succeeds.
+        when(taskService.updateStatus(eq(USER), any(UUID.class), eq(TaskStatus.COMPLETED)))
+                .thenThrow(new com.taskflow.exception.TaskNotFoundException(missing))
+                .thenReturn(null);
+        com.taskflow.ai.orchestration.AgentRunRecorder.open();
+        try {
+            assertThatThrownBy(() -> limited.updateTaskStatus(missing, "COMPLETED"))
+                    .isInstanceOf(ToolExecutionException.class)
+                    .hasMessageNotContaining("Limit reached");
+
+            // The failed attempt changed nothing, so the one allowed change is still available.
+            limited.updateTaskStatus(UUID.randomUUID(), "COMPLETED");
         } finally {
             com.taskflow.ai.orchestration.AgentRunRecorder.close();
         }

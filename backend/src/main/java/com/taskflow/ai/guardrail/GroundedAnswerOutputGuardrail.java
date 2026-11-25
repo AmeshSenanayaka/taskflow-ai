@@ -51,7 +51,7 @@ public class GroundedAnswerOutputGuardrail implements OutputGuardrail {
             // No signed-in user: the tools refuse every call in that case, so there is nothing to ground against.
             return success();
         }
-        List<TaskResponse> tasks = taskService.listAll(ownerId);
+        List<TaskResponse> tasks = AgentRunRecorder.tasksForChecks(() -> taskService.listAll(ownerId));
         DailyPlan plan = AgentRunRecorder.currentPlan();
         List<GuardrailViolation> violations = AnswerGuard.check(answer, tasks, requestText(request), plan);
         if (violations.isEmpty()) {

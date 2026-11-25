@@ -2,6 +2,8 @@ package com.taskflow.ai.guardrail;
 
 import com.taskflow.ai.dto.DailyPlan;
 import com.taskflow.dto.response.TaskResponse;
+import com.taskflow.enums.TaskPriority;
+import com.taskflow.enums.TaskStatus;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -20,7 +22,8 @@ import java.util.regex.Pattern;
  *   <li>every quoted task title in the answer is one of the user's task titles (or a phrase from their message);</li>
  *   <li>when a checked plan exists, every time block in the answer is one of the plan's blocks.</li>
  * </ul>
- * Agents quote titles in double quotes (their prompts ask for it), which is what makes the title check possible.
+ * Agents write task titles in double quotes (rule in each agent prompt), which is what makes the title check possible;
+ * an unquoted invented title is not detected. Quoted status and priority values ("COMPLETED", "high") are not titles.
  */
 public final class AnswerGuard {
 
@@ -29,6 +32,21 @@ public final class AnswerGuard {
     private static final Pattern QUOTED = Pattern.compile("[\"“]([^\"“”\\n]{3,150})[\"”]");
     private static final Pattern TIME_RANGE = Pattern.compile(
             "\\b([01]?\\d|2[0-3]):([0-5]\\d)\\s*(?:-|–|—|to)\\s*([01]?\\d|2[0-3]):([0-5]\\d)\\b");
+
+    /** Status and priority values an agent may quote, e.g. "COMPLETED" or "in progress". */
+    private static final Set<String> ENUM_VALUES = enumValues();
+
+    private static Set<String> enumValues() {
+        Set<String> values = new HashSet<>();
+        for (Enum<?> value : TaskStatus.values()) {
+            values.add(value.name().toLowerCase(Locale.ROOT));
+            values.add(value.name().toLowerCase(Locale.ROOT).replace('_', ' '));
+        }
+        for (Enum<?> value : TaskPriority.values()) {
+            values.add(value.name().toLowerCase(Locale.ROOT));
+        }
+        return Set.copyOf(values);
+    }
 
     private AnswerGuard() {
     }
@@ -69,7 +87,7 @@ public final class AnswerGuard {
         while (quoted.find()) {
             String text = quoted.group(1).trim();
             String normalized = normalize(text);
-            if (!titles.contains(normalized) && !message.contains(normalized)) {
+            if (!titles.contains(normalized) && !message.contains(normalized) && !ENUM_VALUES.contains(normalized)) {
                 unknownTitles.add(text);
             }
         }

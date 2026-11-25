@@ -72,7 +72,7 @@ taskflow:
       enabled: ${AI_GUARDRAILS_ENABLED:true}
       # Task changes one assistant message may make; further writes are refused.
       max-writes-per-request: ${AI_GUARDRAILS_MAX_WRITES:10}
-      # Rewrites of an answer that failed an output check before the safe fallback is returned.
+      # Reprompts of an agent whose answer failed the output check, before the safe fallback is shown.
       output-retries: ${AI_GUARDRAILS_OUTPUT_RETRIES:1}
 
 springdoc:

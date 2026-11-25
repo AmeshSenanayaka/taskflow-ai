@@ -17,7 +17,7 @@ public final class InjectionDetector {
 
     private static final List<Pattern> PATTERNS = List.of(
             Pattern.compile("\\b(ignore|disregard|forget|override)\\s+(all\\s+|any\\s+|the\\s+|your\\s+|of\\s+)*"
-                    + "(previous|prior|above|earlier|system|original)\\s+(instructions?|rules|prompts?|messages?|guidelines)", FLAGS),
+                    + "(previous|prior|above|earlier|system|original)\\s+(instructions?|rules|prompts?|guidelines)", FLAGS),
             Pattern.compile("\\b(reveal|show|print|repeat|output|tell\\s+me)\\s+(me\\s+)?(your\\s+|the\\s+)*"
                     + "(system|hidden|developer|initial|original)\\s+(prompt|instructions?|message)", FLAGS),
             Pattern.compile("\\byou\\s+are\\s+now\\s+(in\\s+)?(a\\s+|an\\s+)?(developer|maintenance|admin|jailbreak|dan|unrestricted)\\b", FLAGS),
